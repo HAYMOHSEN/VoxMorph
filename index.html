@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>VoxMorph — Voice Changer for Voice-over</title>
+  <meta name="description" content="VoxMorph turns any recorded voice or microphone input into a child, woman, old man or broadcaster voice for video voice-overs. Works offline; audio never leaves your device.">
+  <meta name="theme-color" content="#0f1117">
+  <meta name="color-scheme" content="dark">
+  <link rel="manifest" href="./manifest.json">
+  <link rel="icon" href="./icons/favicon.png" type="image/png">
+  <link rel="apple-touch-icon" href="./icons/icon-192.png">
+  <link rel="stylesheet" href="./css/app.css">
+</head>
+<body>
+  <div id="dropOverlay" class="drop-overlay" hidden><div class="drop-card"><span class="drop-icon">⤓</span><span data-i18n="dropTitle">أفلت الملف للاستيراد</span></div></div>
+
+  <header class="topbar">
+    <div class="brand">
+      <img src="./icons/icon-192.png" alt="" class="logo" width="40" height="40">
+      <div>
+        <h1 data-i18n="appName">VoxMorph</h1>
+        <p class="tagline" data-i18n="tagline"></p>
+      </div>
+    </div>
+    <div class="topbar-actions">
+      <button id="installBtn" class="btn ghost small" hidden data-i18n="installHint"></button>
+      <button id="helpBtn" class="btn ghost small" data-i18n="help"></button>
+      <button id="langBtn" class="btn ghost small" data-i18n="language"></button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <!-- 1. Source -->
+    <section class="panel source" id="sourcePanel" aria-labelledby="step1">
+      <h2 id="step1" data-i18n="step1"></h2>
+      <div class="source-actions">
+        <button id="recordBtn" class="btn primary big">
+          <span class="rec-dot" aria-hidden="true"></span>
+          <span class="label" data-i18n="record"></span>
+          <span class="rec-time" id="recTime" hidden>0:00.0</span>
+        </button>
+        <button id="importBtn" class="btn secondary big">
+          <svg viewBox="0 0 24 24" class="ic" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span data-i18n="importFile"></span>
+        </button>
+        <input type="file" id="fileInput" accept="audio/*,video/*,.mp3,.wav,.m4a,.aac,.ogg,.opus,.flac,.webm,.mp4,.mov,.mkv,.wma" hidden>
+      </div>
+      <p class="hint" data-i18n="dropHint"></p>
+
+      <div class="mic-row">
+        <label for="micSelect" data-i18n="micDevice"></label>
+        <select id="micSelect"><option value="" data-i18n="defaultDevice"></option></select>
+        <div class="meter" id="levelMeter" aria-hidden="true"><div class="meter-fill" id="levelFill"></div><div class="meter-peak" id="levelPeak"></div></div>
+      </div>
+
+      <div class="wave-wrap" id="waveWrap">
+        <canvas id="waveform" width="900" height="180"></canvas>
+        <div class="wave-empty" id="waveEmpty" data-i18n="noClip"></div>
+        <div class="playhead" id="playhead" hidden></div>
+        <div class="trim-shade start" id="shadeStart"></div>
+        <div class="trim-shade end" id="shadeEnd"></div>
+      </div>
+
+      <div class="trim-row" id="trimRow" hidden>
+        <span class="trim-label" data-i18n="trim"></span>
+        <label><span data-i18n="trimStart"></span> <input type="range" id="trimStart" min="0" max="1000" value="0"><output id="trimStartVal">0:00.0</output></label>
+        <label><span data-i18n="trimEnd"></span> <input type="range" id="trimEnd" min="0" max="1000" value="1000"><output id="trimEndVal">0:00.0</output></label>
+        <button id="resetTrim" class="btn ghost small" data-i18n="resetTrim"></button>
+        <span class="duration"><span data-i18n="duration"></span>: <output id="durationVal">0:00.0</output></span>
+      </div>
+
+      <div class="transport">
+        <button id="playOrigBtn" class="btn secondary" disabled>
+          <svg viewBox="0 0 24 24" class="ic" aria-hidden="true"><path d="M8 5v14l11-7z" fill="currentColor"/></svg>
+          <span data-i18n="playOriginal"></span>
+        </button>
+        <button id="playConvBtn" class="btn primary" disabled>
+          <svg viewBox="0 0 24 24" class="ic" aria-hidden="true"><path d="M8 5v14l11-7z" fill="currentColor"/></svg>
+          <span data-i18n="playConverted"></span>
+        </button>
+        <span class="time" id="timeInfo">0:00.0</span>
+        <span class="status-chip" id="renderStatus"></span>
+      </div>
+
+      <div class="live-row">
+        <label class="switch">
+          <input type="checkbox" id="liveToggle">
+          <span class="slider"></span>
+          <span data-i18n="liveMonitor"></span>
+        </label>
+        <p class="hint small" data-i18n="liveHint"></p>
+      </div>
+    </section>
+
+    <!-- 2. Voice -->
+    <section class="panel voice" aria-labelledby="step2">
+      <h2 id="step2" data-i18n="step2"></h2>
+      <div class="presets" id="presets" role="radiogroup">
+        <button class="preset" data-preset="child" role="radio" aria-checked="false">
+          <svg viewBox="0 0 48 48" class="pic" aria-hidden="true"><circle cx="24" cy="22" r="12" fill="none" stroke="currentColor" stroke-width="2.5"/><path d="M17 20c1 0 2 .5 2 1.5M29 20c1 0 2 .5 2 1.5" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/><path d="M18 27c2 3 10 3 12 0" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/><path d="M14 14c2-6 18-6 20 0" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/><path d="M10 44c2-8 26-8 28 0" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>
+          <span class="pname" data-i18n="child"></span><span class="pdesc" data-i18n="childDesc"></span>
+        </button>
+        <button class="preset" data-preset="woman" role="radio" aria-checked="false">
+          <svg viewBox="0 0 48 48" class="pic" aria-hidden="true"><path d="M13 30c-2-14 4-22 11-22s13 8 11 22" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/><circle cx="24" cy="21" r="8" fill="none" stroke="currentColor" stroke-width="2.5"/><path d="M8 44c3-9 29-9 32 0" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>
+          <span class="pname" data-i18n="woman"></span><span class="pdesc" data-i18n="womanDesc"></span>
+        </button>
+        <button class="preset" data-preset="oldman" role="radio" aria-checked="false">
+          <svg viewBox="0 0 48 48" class="pic" aria-hidden="true"><circle cx="24" cy="20" r="10" fill="none" stroke="currentColor" stroke-width="2.5"/><path d="M14 18c3-5 17-5 20 0" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/><path d="M18 30c0 4 12 4 12 0" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/><rect x="15" y="17" width="7" height="5" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><rect x="26" y="17" width="7" height="5" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M9 44c3-9 27-9 30 0" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>
+          <span class="pname" data-i18n="oldman"></span><span class="pdesc" data-i18n="oldmanDesc"></span>
+        </button>
+        <button class="preset" data-preset="broadcaster" role="radio" aria-checked="false">
+          <svg viewBox="0 0 48 48" class="pic" aria-hidden="true"><rect x="18" y="6" width="12" height="22" rx="6" fill="none" stroke="currentColor" stroke-width="2.5"/><path d="M12 22c0 7 5 12 12 12s12-5 12-12M24 34v8M17 42h14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/><path d="M6 14c-2 4-2 10 0 14M42 14c2 4 2 10 0 14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>
+          <span class="pname" data-i18n="broadcaster"></span><span class="pdesc" data-i18n="broadcasterDesc"></span>
+        </button>
+        <button class="preset" data-preset="enhance" role="radio" aria-checked="false">
+          <svg viewBox="0 0 48 48" class="pic" aria-hidden="true"><path d="M24 6l3.5 10.5L38 20l-10.5 3.5L24 34l-3.5-10.5L10 20l10.5-3.5z" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/><path d="M38 32l1.5 4 4 1.5-4 1.5-1.5 4-1.5-4-4-1.5 4-1.5z" fill="currentColor"/></svg>
+          <span class="pname" data-i18n="enhance"></span><span class="pdesc" data-i18n="enhanceDesc"></span>
+        </button>
+        <button class="preset" data-preset="custom" role="radio" aria-checked="false">
+          <svg viewBox="0 0 48 48" class="pic" aria-hidden="true"><path d="M8 14h32M8 24h32M8 34h32" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/><circle cx="18" cy="14" r="4" fill="currentColor"/><circle cx="30" cy="24" r="4" fill="currentColor"/><circle cx="14" cy="34" r="4" fill="currentColor"/></svg>
+          <span class="pname" data-i18n="custom"></span><span class="pdesc" data-i18n="customDesc"></span>
+        </button>
+      </div>
+
+      <div class="control-row">
+        <label for="intensity" data-i18n="intensity"></label>
+        <input type="range" id="intensity" min="25" max="150" value="100" step="5">
+        <output id="intensityVal">100%</output>
+      </div>
+
+      <div class="control-row auto-row">
+        <label class="switch">
+          <input type="checkbox" id="autoToggle" checked>
+          <span class="slider"></span>
+          <span data-i18n="autoAdapt"></span>
+        </label>
+        <span class="detected" id="detectedInfo"></span>
+      </div>
+      <p class="hint small" data-i18n="autoHint"></p>
+
+      <details class="fine" id="fineDetails">
+        <summary data-i18n="fine"></summary>
+        <div class="fine-grid">
+          <label><span data-i18n="pitch"></span><input type="range" id="pitchOffset" min="-12" max="12" step="0.5" value="0"><output id="pitchOffsetVal">0</output></label>
+          <label><span data-i18n="formant"></span><input type="range" id="formantOffset" min="-30" max="30" step="1" value="0"><output id="formantOffsetVal">0%</output></label>
+          <label><span data-i18n="breath"></span><input type="range" id="breath" min="0" max="100" step="1" value="0"><output id="breathVal">0</output></label>
+          <label><span data-i18n="tremor"></span><input type="range" id="tremor" min="0" max="100" step="1" value="0"><output id="tremorVal">0</output></label>
+          <label><span data-i18n="rough"></span><input type="range" id="rough" min="0" max="100" step="1" value="0"><output id="roughVal">0</output></label>
+          <label><span data-i18n="brightness"></span><input type="range" id="brightness" min="-8" max="8" step="0.5" value="0"><output id="brightnessVal">0 dB</output></label>
+          <label><span data-i18n="warmth"></span><input type="range" id="warmth" min="-8" max="8" step="0.5" value="0"><output id="warmthVal">0 dB</output></label>
+          <label><span data-i18n="compress"></span><input type="range" id="compress" min="0" max="100" step="1" value="0"><output id="compressVal">0</output></label>
+          <label class="switch inline"><input type="checkbox" id="radioToggle"><span class="slider"></span><span data-i18n="radio"></span></label>
+        </div>
+        <h3 data-i18n="cleanup"></h3>
+        <div class="fine-grid">
+          <label class="switch inline"><input type="checkbox" id="nrToggle" checked><span class="slider"></span><span data-i18n="noiseReduction"></span></label>
+          <label><span data-i18n="nrStrength"></span><input type="range" id="nrStrength" min="0" max="100" step="1" value="60"><output id="nrStrengthVal">60</output></label>
+          <label class="switch inline"><input type="checkbox" id="gateToggle"><span class="slider"></span><span data-i18n="gate"></span></label>
+          <label class="switch inline"><input type="checkbox" id="normToggle" checked><span class="slider"></span><span data-i18n="normalize"></span></label>
+          <label><span data-i18n="target"></span>
+            <select id="normTarget"><option value="-14">-14 LUFS</option><option value="-16" selected>-16 LUFS</option><option value="-18">-18 LUFS</option><option value="-20">-20 LUFS</option><option value="-23">-23 LUFS</option></select>
+          </label>
+        </div>
+        <div class="fine-actions">
+          <button id="resetFine" class="btn ghost small" data-i18n="resetFine"></button>
+          <button id="savePresetBtn" class="btn secondary small" data-i18n="savePreset"></button>
+          <button id="myPresetBtn" class="btn secondary small" data-i18n="loadPreset" hidden></button>
+        </div>
+      </details>
+    </section>
+
+    <!-- 3. Export -->
+    <section class="panel export" aria-labelledby="step3">
+      <h2 id="step3" data-i18n="step3"></h2>
+      <div class="export-grid">
+        <label><span data-i18n="format"></span><select id="formatSelect"></select></label>
+        <label><span data-i18n="quality"></span><select id="qualitySelect"></select></label>
+        <label><span data-i18n="sampleRate"></span><select id="rateSelect"></select></label>
+        <label class="wide"><span data-i18n="fileName"></span><input type="text" id="fileName" spellcheck="false"></label>
+        <button id="saveBtn" class="btn primary big" disabled>
+          <svg viewBox="0 0 24 24" class="ic" aria-hidden="true"><path d="M5 4h11l3 3v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1zM8 4v5h7V4M7 20v-7h10v7" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+          <span data-i18n="save"></span>
+        </button>
+      </div>
+      <p class="hint small" data-i18n="exportHint"></p>
+      <div class="progress" id="progress" hidden><div class="bar" id="progressBar"></div><span id="progressText"></span></div>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <span data-i18n="shortcutHint"></span>
+    <a href="./privacy.html" data-i18n="privacy"></a>
+    <span class="version">v1.0.0</span>
+  </footer>
+
+  <div id="toast" class="toast" hidden></div>
+
+  <dialog id="helpDialog">
+    <h3 data-i18n="help"></h3>
+    <p data-i18n="helpText"></p>
+    <form method="dialog"><button class="btn primary" value="ok">OK</button></form>
+  </dialog>
+
+  <script type="module" src="./js/app.js"></script>
+</body>
+</html>

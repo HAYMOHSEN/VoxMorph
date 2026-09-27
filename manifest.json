@@ -1,0 +1,31 @@
+{
+  "name": "VoxMorph — Voice Changer for Voice-over",
+  "short_name": "VoxMorph",
+  "description": "Turn any recorded voice or microphone input into a child, woman, old man or broadcaster voice for video voice-overs. Works offline — audio never leaves your device.",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0f1117",
+  "theme_color": "#0f1117",
+  "lang": "ar",
+  "dir": "auto",
+  "categories": ["music", "productivity", "utilities"],
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "screenshots": [
+    { "src": "screenshots/voxmorph-ar-1.png", "sizes": "1920x1080", "type": "image/png", "form_factor": "wide", "label": "VoxMorph — الواجهة العربية" },
+    { "src": "screenshots/voxmorph-en-1.png", "sizes": "1920x1080", "type": "image/png", "form_factor": "wide", "label": "VoxMorph — English interface" }
+  ],
+  "shortcuts": [
+    { "name": "Record", "short_name": "Record", "description": "Start VoxMorph and record", "url": "./?action=record", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] }
+  ],
+  "file_handlers": [
+    { "action": "./", "accept": { "audio/*": [".mp3", ".wav", ".m4a", ".aac", ".ogg", ".opus", ".flac", ".webm"], "video/mp4": [".mp4"], "video/webm": [".webm"] } }
+  ],
+  "prefer_related_applications": false
+}
