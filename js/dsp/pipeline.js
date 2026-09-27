@@ -6,7 +6,7 @@
 
 import { SpectralStage, estimateNoiseProfile } from './spectral.js';
 import { WSOLA, Resampler } from './timescale.js';
-import { Biquad, FilterChain, Tremor, Breath, Roughness, Gate, Compressor, Limiter } from './effects.js';
+import { Biquad, FilterChain, Tremor, Breath, Roughness, Gate, Compressor, Limiter, RingMod } from './effects.js';
 import { estimatePitch, normalizeInPlace, measureLoudness, peakAbs } from './analysis.js';
 import { resolveSettings } from './presets.js';
 
@@ -58,6 +58,8 @@ export class VoicePipeline {
     this.breath.set(p.breath);
     this.rough = new Roughness(fs);
     this.rough.set(p.rough);
+    this.ring = new RingMod(fs);
+    this.ring.set(p.ringMod || 0, p.ringHz || 45);
 
     const eq = [];
     if (p.radio) {
@@ -124,6 +126,7 @@ export class VoicePipeline {
     this.tremor.processInPlace(y);
     this.breath.processInPlace(y);
     this.rough.processInPlace(y);
+    this.ring.processInPlace(y);
     this.eq.processInPlace(y);
     this.comp.processInPlace(y);
     this.limiter.processInPlace(y);

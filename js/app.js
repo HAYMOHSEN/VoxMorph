@@ -1,7 +1,8 @@
 // VoxMorph — application logic (UI, state, rendering, export, PWA)
 import { STRINGS, t, setLanguage, detectLanguage, getLanguage, applyI18n, formatTime } from './i18n.js';
 import { AudioEngine, RenderWorker, RATE } from './audio-engine.js';
-import { PRESETS, PRESET_IDS, defaultSettings, resolveSettings } from './dsp/presets.js';
+import { PRESETS, PRESET_IDS, CATEGORIES, presetsInCategory, defaultSettings, resolveSettings } from './dsp/presets.js';
+import { DEFAULT_MIX } from './dsp/mixer.js';
 import { FORMATS, detectSupport, formatAvailable, encodeAudio, saveBlob } from './export/index.js';
 
 const $ = (id) => document.getElementById(id);
@@ -20,6 +21,11 @@ const state = {
   recording: false, live: false,
   peaks: null,
   levelPeak: 0, levelRms: 0, levelHold: 0,
+  activeCategory: 'man',
+  music: null,                       // { id, name, L, R, fs, duration }
+  mix: Object.assign({}, DEFAULT_MIX),
+  mixed: null, mixedKey: '', mixing: false,
+  playVoiceStart: 0,
 };
 
 const engine = new AudioEngine({
@@ -27,8 +33,9 @@ const engine = new AudioEngine({
   onRecordingProgress: (sec) => { $('recTime').textContent = formatTime(sec); },
 });
 const worker = new RenderWorker('./js/dsp/render-worker.js');
-let renderTimer = null, liveTimer = null, renderSeq = 0;
+let renderTimer = null, liveTimer = null, renderSeq = 0, mixTimer = null, mixSeq = 0;
 let activeRender = { key: '', promise: null };
+let activeMix = { key: '', promise: null };
 
 // ------------------------------------------------------------------ helpers
 function toast(msg, kind = '', ms = 3200) {
@@ -124,9 +131,11 @@ function tick() {
   const ph = $('playhead');
   if (engine.playing) {
     const pos = engine.position();
-    const abs = state.trim.start + pos;
-    ph.hidden = false; ph.style.left = `${timeToX(abs)}px`;
-    $('timeInfo').textContent = `${formatTime(pos)} / ${formatTime(selectionDuration())}`;
+    const dur = engine.player.buffer ? engine.player.buffer.duration : selectionDuration();
+    const vpos = pos - (engine.player.which === 'conv' ? (state.playVoiceStart || 0) / RATE : 0);
+    if (vpos >= 0 && vpos <= selectionDuration()) { ph.hidden = false; ph.style.left = `${timeToX(state.trim.start + vpos)}px`; }
+    else ph.hidden = true;
+    $('timeInfo').textContent = `${formatTime(pos)} / ${formatTime(dur)}`;
   }
   // level meter
   const rmsDb = 20 * Math.log10(state.levelRms + 1e-6), peakDb = 20 * Math.log10(state.levelHold + 1e-6);
@@ -143,20 +152,33 @@ function currentConverted() {
   if (state.preview && state.previewKey === key) return { audio: state.preview, preview: true };
   return null;
 }
+function mixActive() { return !!(state.mix.enabled && state.music); }
+function mixKey() { return JSON.stringify({ c: state.convertedKey, m: state.music ? state.music.id : null, x: state.mix }); }
+/** What "converted" playback/export should use right now: the music mix when ready, else the voice. */
+function currentOutput() {
+  const c = currentConverted();
+  if (!c) return null;
+  if (!c.preview && mixActive() && state.mixed && state.mixedKey === mixKey()) {
+    return { channels: [state.mixed.L, state.mixed.R], preview: false, mix: true, voiceStart: state.mixed.voiceStart };
+  }
+  return { channels: c.audio, preview: c.preview, mix: false, voiceStart: 0 };
+}
 async function playWhich(which) {
   if (!state.audio) return;
   const wasPlaying = engine.playing, pos = engine.position();
   if (wasPlaying && engine.player.which === which) { engine.pause(); updateTransport(); return; }
-  let audio;
+  let audio, voiceStart = 0;
   if (which === 'orig') audio = selection();
   else {
-    const c = currentConverted();
-    if (!c) { toast(t('convertedNotReady')); return; }
-    audio = c.audio;
+    const o = currentOutput();
+    if (!o) { toast(t('convertedNotReady')); return; }
+    audio = o.channels; voiceStart = o.voiceStart;
   }
   state.lastPlayed = which;
+  state.playVoiceStart = voiceStart;
+  const len = Array.isArray(audio) ? audio[0].length : audio.length;
   const offset = wasPlaying ? pos : engine.player.offset;
-  await engine.play(audio, which, offset < audio.length / RATE - 0.05 ? offset : 0, () => { updateTransport(); $('playhead').hidden = true; $('timeInfo').textContent = `0:00.0 / ${formatTime(selectionDuration())}`; });
+  await engine.play(audio, which, offset < len / RATE - 0.05 ? offset : 0, () => { updateTransport(); $('playhead').hidden = true; $('timeInfo').textContent = `0:00.0 / ${formatTime(selectionDuration())}`; });
   updateTransport();
 }
 function updateTransport() {
@@ -171,7 +193,11 @@ function updateTransport() {
   $('playOrigBtn').disabled = !state.audio;
   const c = currentConverted();
   $('playConvBtn').disabled = !c;
-  if (c && c.preview && !(playing && which === 'conv')) $('playConvBtn').querySelector('span').textContent = `${t('playConverted')} (${PREVIEW_SECONDS}${t('seconds')})`;
+  if (c && !(playing && which === 'conv')) {
+    const o = currentOutput();
+    if (c.preview) $('playConvBtn').querySelector('span').textContent = `${t('playConverted')} (${PREVIEW_SECONDS}${t('seconds')})`;
+    else if (o && o.mix) $('playConvBtn').querySelector('span').textContent = `${t('playConverted')} · ${t('withMusic')}`;
+  }
   $('saveBtn').disabled = !state.audio;
 }
 
@@ -186,6 +212,7 @@ async function loadClip(audio) {
   state.audio = audio; state.peaks = null;
   state.trim = { start: 0, end: audio.length / RATE };
   state.converted = null; state.convertedKey = ''; state.preview = null; state.previewKey = '';
+  state.mixed = null; state.mixedKey = ''; mixSeq++; state.mixing = false; updateMixStatus();
   state.voiceInfo = null;
   $('waveEmpty').hidden = true; $('trimRow').hidden = false;
   $('trimStart').value = 0; $('trimEnd').value = 1000;
@@ -247,6 +274,7 @@ async function runRender(key) {
     state.rendering = false;
     setStatus(t('ready'), 'ok');
     updateTransport();
+    if (mixActive()) scheduleMix(0); else updateMixStatus();
   } catch (e) {
     if (seq !== renderSeq) return;
     state.rendering = false;
@@ -264,6 +292,114 @@ async function ensureConvertedFull() {
   if (state.converted && state.convertedKey === key) return state.converted;
   throw new Error(t('convertedNotReady'));
 }
+/** Voice (mono) or the finished music mix (stereo channels), rendering whatever is missing. */
+async function ensureOutput() {
+  const voice = await ensureConvertedFull();
+  if (!mixActive()) return voice;
+  clearTimeout(mixTimer);
+  await mixNow();
+  const o = currentOutput();
+  if (o && o.mix) return o.channels;
+  throw new Error(t('musicError'));
+}
+
+// ------------------------------------------------------------------ background music
+function updateMixStatus() {
+  const c = $('mixStatus');
+  $('musicControls').closest('.panel').classList.toggle('disabled', !mixActive());
+  if (!mixActive()) { c.textContent = ''; c.className = 'status-chip'; return; }
+  if (state.mixing) { c.textContent = t('mixing'); c.className = 'status-chip busy'; }
+  else if (state.mixed && state.mixedKey === mixKey()) { c.textContent = t('mixReady'); c.className = 'status-chip ok'; }
+  else { c.textContent = ''; c.className = 'status-chip'; }
+}
+function scheduleMix(delay = 200) {
+  clearTimeout(mixTimer);
+  if (!mixActive()) { updateMixStatus(); updateTransport(); return; }
+  state.mixing = true; updateMixStatus();
+  mixTimer = setTimeout(mixNow, delay);
+}
+function mixNow() {
+  if (!mixActive() || !state.converted || state.convertedKey !== settingsKey()) { state.mixing = false; updateMixStatus(); return Promise.resolve(); }
+  const key = mixKey();
+  if (state.mixed && state.mixedKey === key) { state.mixing = false; updateMixStatus(); updateTransport(); return Promise.resolve(); }
+  if (activeMix.promise && activeMix.key === key) return activeMix.promise;
+  const seq = ++mixSeq;
+  state.mixing = true; updateMixStatus();
+  const promise = (async () => {
+    try {
+      const r = await worker.mix(state.converted, state.music.id, RATE, Object.assign({}, state.mix));
+      if (seq !== mixSeq) return;
+      state.mixed = { L: r.L, R: r.R, voiceStart: r.voiceStart }; state.mixedKey = key;
+      state.mixing = false;
+      // if the mix was playing, restart with the fresh one
+      updateMixStatus(); updateTransport();
+    } catch (e) {
+      if (seq !== mixSeq) return;
+      state.mixing = false; updateMixStatus();
+      if (String(e.message) !== 'cancelled') toast(t('musicError'), 'error');
+    } finally {
+      if (activeMix.key === key && seq === mixSeq) activeMix = { key: '', promise: null };
+    }
+  })();
+  activeMix = { key, promise };
+  return promise;
+}
+async function importMusic(file) {
+  if (!file) return;
+  try {
+    await engine.ensureContext();
+    $('musicName').textContent = t('decoding');
+    const { L, R } = await engine.decodeFile(file, () => {}, { stereo: true });
+    if (!L || L.length < RATE * 0.5) throw new Error('empty');
+    state.music = { id: `${Date.now()}-${file.name}`, name: file.name, L, R, fs: RATE, duration: L.length / RATE };
+    state.mixed = null; state.mixedKey = '';
+    await worker.setMusic(state.music);
+    state.mix.enabled = true;
+    $('musicToggle').checked = true;
+    $('musicName').textContent = `${file.name} · ${formatTime(state.music.duration)}`; $('musicName').classList.add('set');
+    $('musicRemoveBtn').hidden = false;
+    saveMixSettings();
+    if (state.converted && state.convertedKey === settingsKey()) scheduleMix(0); else updateMixStatus();
+    updateTransport();
+  } catch (e) {
+    $('musicName').textContent = t('musicNone'); $('musicName').classList.remove('set');
+    toast(t('musicError'), 'error');
+  }
+}
+function removeMusic() {
+  engine.stop(); updateTransport();
+  state.music = null; state.mixed = null; state.mixedKey = '';
+  worker.clearMusic();
+  $('musicName').textContent = t('musicNone'); $('musicName').classList.remove('set');
+  $('musicRemoveBtn').hidden = true;
+  updateMixStatus(); updateTransport();
+}
+function saveMixSettings() { try { localStorage.setItem('voxmorph.mix', JSON.stringify(state.mix)); } catch { /* ignore */ } }
+function syncMusicControls() {
+  const m = state.mix;
+  $('musicToggle').checked = !!m.enabled;
+  $('musicDb').value = m.musicDb; $('musicDbVal').textContent = `${m.musicDb > 0 ? '+' : ''}${m.musicDb} dB`;
+  $('duckDb').value = m.duckDb; $('duckDbVal').textContent = `${m.duckDb} dB`;
+  $('introSec').value = m.introSec; $('introSecVal').textContent = `${m.introSec} ${t('seconds')}`;
+  $('outroSec').value = m.outroSec; $('outroSecVal').textContent = `${m.outroSec} ${t('seconds')}`;
+  $('fadeOutSec').value = m.fadeOutSec; $('fadeOutSecVal').textContent = `${m.fadeOutSec} ${t('seconds')}`;
+  $('loopToggle').checked = m.loop !== false;
+  if (state.music) { $('musicName').textContent = `${state.music.name} · ${formatTime(state.music.duration)}`; $('musicName').classList.add('set'); }
+  else { $('musicName').textContent = t('musicNone'); $('musicName').classList.remove('set'); }
+  updateMixStatus();
+}
+function bindMusic() {
+  try { const saved = JSON.parse(localStorage.getItem('voxmorph.mix') || 'null'); if (saved) Object.assign(state.mix, saved, { enabled: false }); } catch { /* ignore */ }
+  const onMix = () => { engine.stop(); saveMixSettings(); syncMusicControls(); updateTransport(); scheduleMix(); };
+  $('musicToggle').addEventListener('change', (e) => { state.mix.enabled = e.target.checked; if (state.mix.enabled && !state.music) { $('musicInput').click(); } onMix(); });
+  $('musicImportBtn').addEventListener('click', () => $('musicInput').click());
+  $('musicInput').addEventListener('change', (e) => { importMusic(e.target.files[0]); e.target.value = ''; });
+  $('musicRemoveBtn').addEventListener('click', removeMusic);
+  const bind = (id, key, num = true) => $(id).addEventListener('input', (e) => { state.mix[key] = num ? Number(e.target.value) : e.target.checked; onMix(); });
+  bind('musicDb', 'musicDb'); bind('duckDb', 'duckDb'); bind('introSec', 'introSec'); bind('outroSec', 'outroSec'); bind('fadeOutSec', 'fadeOutSec');
+  $('loopToggle').addEventListener('change', (e) => { state.mix.loop = e.target.checked; onMix(); });
+  syncMusicControls();
+}
 
 // ------------------------------------------------------------------ settings ↔ controls
 function onSettingsChanged(opts = {}) {
@@ -274,12 +410,53 @@ function onSettingsChanged(opts = {}) {
   refreshFileName();
 }
 function selectPreset(id, { keepFine = false } = {}) {
+  if (!PRESETS[id]) id = 'broadcaster';
   state.settings.preset = id;
   if (!keepFine) {
-    Object.assign(state.settings, { pitchOffset: 0, formantOffset: 0, breath: null, tremor: null, rough: null, brightness: null, warmth: null, radio: null, compress: null });
+    Object.assign(state.settings, { pitchOffset: 0, formantOffset: 0, breath: null, tremor: null, rough: null, brightness: null, warmth: null, radio: null, compress: null, ringMod: null });
   }
+  if (PRESETS[id].category !== state.activeCategory) { state.activeCategory = PRESETS[id].category; renderPresetPicker(); }
   document.querySelectorAll('.preset').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.preset === id)));
   onSettingsChanged();
+}
+const CATEGORY_ICONS = {
+  child: '<svg viewBox="0 0 48 48" class="pic" aria-hidden="true"><circle cx="24" cy="22" r="12" fill="none" stroke="currentColor" stroke-width="2.5"/><path d="M17 20c1 0 2 .5 2 1.5M29 20c1 0 2 .5 2 1.5" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/><path d="M18 27c2 3 10 3 12 0" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/><path d="M14 14c2-6 18-6 20 0" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/><path d="M10 44c2-8 26-8 28 0" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>',
+  woman: '<svg viewBox="0 0 48 48" class="pic" aria-hidden="true"><path d="M13 30c-2-14 4-22 11-22s13 8 11 22" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/><circle cx="24" cy="21" r="8" fill="none" stroke="currentColor" stroke-width="2.5"/><path d="M8 44c3-9 29-9 32 0" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>',
+  man: '<svg viewBox="0 0 48 48" class="pic" aria-hidden="true"><rect x="18" y="6" width="12" height="22" rx="6" fill="none" stroke="currentColor" stroke-width="2.5"/><path d="M12 22c0 7 5 12 12 12s12-5 12-12M24 34v8M17 42h14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/><path d="M6 14c-2 4-2 10 0 14M42 14c2 4 2 10 0 14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>',
+  fx: '<svg viewBox="0 0 48 48" class="pic" aria-hidden="true"><path d="M26 4 10 28h12l-2 16 18-26H26z" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/></svg>',
+  other: '<svg viewBox="0 0 48 48" class="pic" aria-hidden="true"><path d="M8 14h32M8 24h32M8 34h32" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/><circle cx="18" cy="14" r="4" fill="currentColor"/><circle cx="30" cy="24" r="4" fill="currentColor"/><circle cx="14" cy="34" r="4" fill="currentColor"/></svg>',
+};
+const PRESET_ICONS = {
+  oldman: '<svg viewBox="0 0 48 48" class="pic" aria-hidden="true"><circle cx="24" cy="20" r="10" fill="none" stroke="currentColor" stroke-width="2.5"/><path d="M14 18c3-5 17-5 20 0" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/><path d="M18 30c0 4 12 4 12 0" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/><rect x="15" y="17" width="7" height="5" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><rect x="26" y="17" width="7" height="5" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M9 44c3-9 27-9 30 0" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>',
+  woman_elder: '<svg viewBox="0 0 48 48" class="pic" aria-hidden="true"><path d="M13 30c-2-14 4-22 11-22s13 8 11 22" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/><circle cx="24" cy="21" r="8" fill="none" stroke="currentColor" stroke-width="2.5"/><rect x="16" y="18" width="6" height="4" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><rect x="26" y="18" width="6" height="4" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M8 44c3-9 29-9 32 0" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>',
+  fx_robot: '<svg viewBox="0 0 48 48" class="pic" aria-hidden="true"><rect x="10" y="14" width="28" height="24" rx="5" fill="none" stroke="currentColor" stroke-width="2.5"/><path d="M24 6v8M20 6h8" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/><circle cx="18" cy="24" r="3" fill="currentColor"/><circle cx="30" cy="24" r="3" fill="currentColor"/><path d="M17 32h14" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/><path d="M4 22v8M44 22v8" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>',
+  fx_giant: '<svg viewBox="0 0 48 48" class="pic" aria-hidden="true"><path d="M8 40c0-16 5-26 16-26s16 10 16 26" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/><path d="M17 24l3 3M31 24l-3 3" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/><path d="M18 34c2-3 10-3 12 0" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>',
+  fx_cartoon: '<svg viewBox="0 0 48 48" class="pic" aria-hidden="true"><path d="M24 5l5 12 13 1-10 8 3 13-11-7-11 7 3-13-10-8 13-1z" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/></svg>',
+  enhance: '<svg viewBox="0 0 48 48" class="pic" aria-hidden="true"><path d="M24 6l3.5 10.5L38 20l-10.5 3.5L24 34l-3.5-10.5L10 20l10.5-3.5z" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/><path d="M38 32l1.5 4 4 1.5-4 1.5-1.5 4-1.5-4-4-1.5 4-1.5z" fill="currentColor"/></svg>',
+  woman_anchor: '<svg viewBox="0 0 48 48" class="pic" aria-hidden="true"><path d="M13 30c-2-14 4-22 11-22s13 8 11 22" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/><circle cx="24" cy="21" r="8" fill="none" stroke="currentColor" stroke-width="2.5"/><rect x="33" y="26" width="6" height="12" rx="3" fill="none" stroke="currentColor" stroke-width="2.2"/><path d="M36 38v4" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><path d="M8 44c3-9 29-9 32 0" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>',
+};
+const CATEGORY_KEYS = { child: 'catChild', woman: 'catWoman', man: 'catMan', fx: 'catFx', other: 'catOther' };
+function renderPresetPicker() {
+  const tabs = $('presetTabs');
+  tabs.innerHTML = '';
+  for (const cat of CATEGORIES) {
+    const b = document.createElement('button');
+    b.type = 'button'; b.setAttribute('role', 'tab'); b.dataset.category = cat;
+    b.setAttribute('aria-selected', String(cat === state.activeCategory));
+    b.innerHTML = `<span>${t(CATEGORY_KEYS[cat])}</span><span class="count">${presetsInCategory(cat).length}</span>`;
+    b.addEventListener('click', () => { state.activeCategory = cat; renderPresetPicker(); });
+    tabs.appendChild(b);
+  }
+  const grid = $('presets');
+  grid.innerHTML = '';
+  for (const id of presetsInCategory(state.activeCategory)) {
+    const card = document.createElement('button');
+    card.type = 'button'; card.className = 'preset'; card.dataset.preset = id; card.setAttribute('role', 'radio');
+    card.setAttribute('aria-checked', String(id === state.settings.preset));
+    card.innerHTML = `${PRESET_ICONS[id] || CATEGORY_ICONS[PRESETS[id].category]}<span class="pname">${t('p_' + id)}</span><span class="pdesc">${t('p_' + id + '_d')}</span>`;
+    card.addEventListener('click', () => selectPreset(id));
+    grid.appendChild(card);
+  }
 }
 function syncFineControls() {
   const s = state.settings;
@@ -302,7 +479,8 @@ function syncFineControls() {
   $('normToggle').checked = s.normalize.enabled; $('normTarget').value = String(s.normalize.targetLufs); $('normTarget').disabled = !s.normalize.enabled;
 }
 function bindControls() {
-  document.querySelectorAll('.preset').forEach((b) => b.addEventListener('click', () => selectPreset(b.dataset.preset)));
+  state.activeCategory = (PRESETS[state.settings.preset] || PRESETS.broadcaster).category;
+  renderPresetPicker();
   $('intensity').addEventListener('input', (e) => { state.settings.intensity = Number(e.target.value) / 100; onSettingsChanged(); });
   $('autoToggle').addEventListener('change', (e) => { state.settings.auto = e.target.checked; onSettingsChanged(); });
   $('pitchOffset').addEventListener('input', (e) => { state.settings.pitchOffset = Number(e.target.value); onSettingsChanged(); });
@@ -447,7 +625,7 @@ async function doSave() {
   btn.disabled = true;
   try {
     showProgress(0.05, t('rendering'));
-    const audio = await ensureConvertedFull();
+    const audio = await ensureOutput();
     showProgress(0.6, t('saving'));
     const format = $('formatSelect').value, q = $('qualitySelect').value, rate = Number($('rateSelect').value);
     try { localStorage.setItem('voxmorph.export', JSON.stringify({ format, quality: q, rate })); } catch { /* ignore */ }
@@ -511,8 +689,7 @@ function setupPwa() {
 // ------------------------------------------------------------------ init
 async function init() {
   setLanguage(detectLanguage());
-  bindControls(); bindTrim();
-  document.querySelectorAll('.preset').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.preset === state.settings.preset)));
+  bindControls(); bindTrim(); bindMusic();
   syncFineControls();
   // Optional MP3 encoder (LGPL lamejs) — only used when the file is present in vendor/
   await new Promise((res) => { const sc = document.createElement('script'); sc.src = './vendor/lame.min.js'; sc.onload = res; sc.onerror = res; document.head.appendChild(sc); });
@@ -532,7 +709,7 @@ async function init() {
   $('micSelect').addEventListener('focus', refreshMics);
   $('saveBtn').addEventListener('click', doSave);
   $('helpBtn').addEventListener('click', () => $('helpDialog').showModal());
-  $('langBtn').addEventListener('click', () => { setLanguage(getLanguage() === 'ar' ? 'en' : 'ar'); populateFormats(); syncFineControls(); updateDetected(); updateTransport(); drawWaveform(); updateTrimUI(); refreshMics(); });
+  $('langBtn').addEventListener('click', () => { setLanguage(getLanguage() === 'ar' ? 'en' : 'ar'); populateFormats(); syncFineControls(); updateDetected(); updateTransport(); drawWaveform(); updateTrimUI(); refreshMics(); renderPresetPicker(); syncMusicControls(); });
 
   // drag & drop
   let dragDepth = 0;
@@ -558,7 +735,7 @@ async function init() {
   if ('launchQueue' in window) {
     window.launchQueue.setConsumer(async (launch) => { if (launch.files && launch.files.length) { try { importFile(await launch.files[0].getFile()); } catch { /* ignore */ } } });
   }
-  window.__voxmorph = { state, engine, loadClip, renderNow, ensureConvertedFull, encodeAudio, selectPreset, importFile, resolveSettings, settingsKey };
+  window.__voxmorph = { state, engine, loadClip, renderNow, ensureConvertedFull, ensureOutput, encodeAudio, selectPreset, importFile, importMusic, mixNow, mixKey, resolveSettings, settingsKey };
 }
 
 init();

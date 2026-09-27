@@ -1,5 +1,8 @@
-// VoxMorph — offline rendering in a Web Worker (module worker).
+// VoxMorph — offline rendering and music mixing in a Web Worker (module worker).
 import { renderOffline, analyzeVoice } from './pipeline.js';
+import { mixWithMusic, musicLoudness } from './mixer.js';
+
+let music = null; // { id, L, R, lufs }
 
 self.onmessage = (e) => {
   const m = e.data;
@@ -14,6 +17,17 @@ self.onmessage = (e) => {
         onProgress: (p) => { if (p - last >= 0.04 || p >= 1) { last = p; self.postMessage({ id: m.id, progress: p }); } },
       });
       self.postMessage({ id: m.id, done: true, audio: r.audio, params: r.params, gain: r.gain, voiceInfo: { f0Median: r.voiceInfo.f0Median, voicedRatio: r.voiceInfo.voicedRatio, voiceClass: r.voiceInfo.voiceClass, lufs: r.voiceInfo.lufs } }, [r.audio.buffer]);
+    } else if (m.cmd === 'setMusic') {
+      music = { id: m.musicId, L: m.L, R: m.R || m.L, lufs: musicLoudness(m.L, m.R || m.L, m.fs) };
+      self.postMessage({ id: m.id, done: true, musicId: m.musicId, lufs: music.lufs });
+    } else if (m.cmd === 'clearMusic') {
+      music = null;
+      self.postMessage({ id: m.id, done: true });
+    } else if (m.cmd === 'mix') {
+      if (!music || music.id !== m.musicId) throw new Error('music not loaded');
+      const r = mixWithMusic(m.voice, music, m.fs, m.opts || {});
+      const L = r.L.slice(), R = r.R.slice();
+      self.postMessage({ id: m.id, done: true, L, R, voiceStart: r.voiceStart }, [L.buffer, R.buffer]);
     }
   } catch (err) {
     self.postMessage({ id: m.id, error: String(err && err.message || err) });

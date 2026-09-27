@@ -96,32 +96,8 @@
     <!-- 2. Voice -->
     <section class="panel voice" aria-labelledby="step2">
       <h2 id="step2" data-i18n="step2"></h2>
-      <div class="presets" id="presets" role="radiogroup">
-        <button class="preset" data-preset="child" role="radio" aria-checked="false">
-          <svg viewBox="0 0 48 48" class="pic" aria-hidden="true"><circle cx="24" cy="22" r="12" fill="none" stroke="currentColor" stroke-width="2.5"/><path d="M17 20c1 0 2 .5 2 1.5M29 20c1 0 2 .5 2 1.5" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/><path d="M18 27c2 3 10 3 12 0" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/><path d="M14 14c2-6 18-6 20 0" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/><path d="M10 44c2-8 26-8 28 0" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>
-          <span class="pname" data-i18n="child"></span><span class="pdesc" data-i18n="childDesc"></span>
-        </button>
-        <button class="preset" data-preset="woman" role="radio" aria-checked="false">
-          <svg viewBox="0 0 48 48" class="pic" aria-hidden="true"><path d="M13 30c-2-14 4-22 11-22s13 8 11 22" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/><circle cx="24" cy="21" r="8" fill="none" stroke="currentColor" stroke-width="2.5"/><path d="M8 44c3-9 29-9 32 0" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>
-          <span class="pname" data-i18n="woman"></span><span class="pdesc" data-i18n="womanDesc"></span>
-        </button>
-        <button class="preset" data-preset="oldman" role="radio" aria-checked="false">
-          <svg viewBox="0 0 48 48" class="pic" aria-hidden="true"><circle cx="24" cy="20" r="10" fill="none" stroke="currentColor" stroke-width="2.5"/><path d="M14 18c3-5 17-5 20 0" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/><path d="M18 30c0 4 12 4 12 0" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/><rect x="15" y="17" width="7" height="5" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><rect x="26" y="17" width="7" height="5" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M9 44c3-9 27-9 30 0" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>
-          <span class="pname" data-i18n="oldman"></span><span class="pdesc" data-i18n="oldmanDesc"></span>
-        </button>
-        <button class="preset" data-preset="broadcaster" role="radio" aria-checked="false">
-          <svg viewBox="0 0 48 48" class="pic" aria-hidden="true"><rect x="18" y="6" width="12" height="22" rx="6" fill="none" stroke="currentColor" stroke-width="2.5"/><path d="M12 22c0 7 5 12 12 12s12-5 12-12M24 34v8M17 42h14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/><path d="M6 14c-2 4-2 10 0 14M42 14c2 4 2 10 0 14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>
-          <span class="pname" data-i18n="broadcaster"></span><span class="pdesc" data-i18n="broadcasterDesc"></span>
-        </button>
-        <button class="preset" data-preset="enhance" role="radio" aria-checked="false">
-          <svg viewBox="0 0 48 48" class="pic" aria-hidden="true"><path d="M24 6l3.5 10.5L38 20l-10.5 3.5L24 34l-3.5-10.5L10 20l10.5-3.5z" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/><path d="M38 32l1.5 4 4 1.5-4 1.5-1.5 4-1.5-4-4-1.5 4-1.5z" fill="currentColor"/></svg>
-          <span class="pname" data-i18n="enhance"></span><span class="pdesc" data-i18n="enhanceDesc"></span>
-        </button>
-        <button class="preset" data-preset="custom" role="radio" aria-checked="false">
-          <svg viewBox="0 0 48 48" class="pic" aria-hidden="true"><path d="M8 14h32M8 24h32M8 34h32" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/><circle cx="18" cy="14" r="4" fill="currentColor"/><circle cx="30" cy="24" r="4" fill="currentColor"/><circle cx="14" cy="34" r="4" fill="currentColor"/></svg>
-          <span class="pname" data-i18n="custom"></span><span class="pdesc" data-i18n="customDesc"></span>
-        </button>
-      </div>
+      <div class="preset-tabs" id="presetTabs" role="tablist"></div>
+      <div class="presets" id="presets" role="radiogroup"></div>
 
       <div class="control-row">
         <label for="intensity" data-i18n="intensity"></label>
@@ -170,9 +146,38 @@
       </details>
     </section>
 
-    <!-- 3. Export -->
-    <section class="panel export" aria-labelledby="step3">
-      <h2 id="step3" data-i18n="step3"></h2>
+    <!-- 3. Background music -->
+    <section class="panel music" aria-labelledby="step3">
+      <h2 id="step3" data-i18n="step3music"></h2>
+      <div class="music-top">
+        <label class="switch">
+          <input type="checkbox" id="musicToggle">
+          <span class="slider"></span>
+          <span data-i18n="musicEnable"></span>
+        </label>
+        <button id="musicImportBtn" class="btn secondary">
+          <svg viewBox="0 0 24 24" class="ic" aria-hidden="true"><path d="M9 18V6l11-2v12" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="6" cy="18" r="3" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="17" cy="16" r="3" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+          <span data-i18n="importMusic"></span>
+        </button>
+        <input type="file" id="musicInput" accept="audio/*,video/*,.mp3,.wav,.m4a,.aac,.ogg,.opus,.flac,.webm,.mp4" hidden>
+        <span class="music-name" id="musicName" data-i18n="musicNone"></span>
+        <button id="musicRemoveBtn" class="btn ghost small" hidden data-i18n="removeMusic"></button>
+      </div>
+      <div class="fine-grid music-grid" id="musicControls">
+        <label><span data-i18n="musicLevel"></span><input type="range" id="musicDb" min="-24" max="12" step="1" value="0"><output id="musicDbVal">0 dB</output></label>
+        <label><span data-i18n="ducking"></span><input type="range" id="duckDb" min="0" max="24" step="1" value="12"><output id="duckDbVal">12 dB</output></label>
+        <label><span data-i18n="intro"></span><input type="range" id="introSec" min="0" max="10" step="0.5" value="1.5"><output id="introSecVal">1.5 s</output></label>
+        <label><span data-i18n="outro"></span><input type="range" id="outroSec" min="0" max="10" step="0.5" value="2"><output id="outroSecVal">2 s</output></label>
+        <label><span data-i18n="fadeOut"></span><input type="range" id="fadeOutSec" min="0" max="6" step="0.5" value="2"><output id="fadeOutSecVal">2 s</output></label>
+        <label class="switch inline"><input type="checkbox" id="loopToggle" checked><span class="slider"></span><span data-i18n="loopMusic"></span></label>
+      </div>
+      <p class="hint small" data-i18n="musicHint"></p>
+      <span class="status-chip" id="mixStatus"></span>
+    </section>
+
+    <!-- 4. Export -->
+    <section class="panel export" aria-labelledby="step4">
+      <h2 id="step4" data-i18n="step4"></h2>
       <div class="export-grid">
         <label><span data-i18n="format"></span><select id="formatSelect"></select></label>
         <label><span data-i18n="quality"></span><select id="qualitySelect"></select></label>
@@ -191,7 +196,7 @@
   <footer class="foot">
     <span data-i18n="shortcutHint"></span>
     <a href="./privacy.html" data-i18n="privacy"></a>
-    <span class="version">v1.0.0</span>
+    <span class="version">v1.1.0</span>
   </footer>
 
   <div id="toast" class="toast" hidden></div>

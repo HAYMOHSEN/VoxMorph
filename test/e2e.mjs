@@ -53,7 +53,9 @@ console.log('  detected label:', s1.detected);
 const waitRendered = async () => {
   await page.waitForFunction(() => { const vm = window.__voxmorph; return vm.state.converted && vm.state.convertedKey === vm.settingsKey(); }, null, { timeout: 90000 });
 };
-for (const preset of ['child', 'woman', 'oldman', 'broadcaster', 'enhance']) {
+const CAT = { child: 'child', child_girl: 'child', woman: 'woman', woman_anchor: 'woman', oldman: 'man', broadcaster: 'man', man_deep: 'man', fx_giant: 'fx', enhance: 'other' };
+for (const preset of ['child', 'child_girl', 'woman', 'woman_anchor', 'oldman', 'broadcaster', 'man_deep', 'fx_giant', 'enhance']) {
+  await page.click(`#presetTabs button[data-category="${CAT[preset]}"]`);
   await page.click(`.preset[data-preset="${preset}"]`);
   await waitRendered();
   const { arr, expected } = await page.evaluate(() => { const vm = window.__voxmorph; const p = vm.resolveSettings(vm.state.settings, vm.state.voiceInfo); return { arr: Array.from(vm.state.converted), expected: vm.state.voiceInfo.f0Median * p.pitchRatio }; });
@@ -63,7 +65,12 @@ for (const preset of ['child', 'woman', 'oldman', 'broadcaster', 'enhance']) {
   writeWav(path.join(root, 'test/out', `e2e_${preset}.wav`), f, 48000);
 }
 
+// ---- category tabs render all styles
+const tabInfo = await page.evaluate(() => [...document.querySelectorAll('#presetTabs button')].map((b) => b.dataset.category + ':' + b.querySelector('.count').textContent).join(' '));
+check(tabInfo === 'child:4 woman:5 man:5 fx:3 other:2', `category tabs: ${tabInfo}`);
+
 // ---- trim + fine control
+await page.click('#presetTabs button[data-category="man"]');
 await page.click('.preset[data-preset="broadcaster"]');
 await waitRendered();
 await page.evaluate(() => { const el = document.getElementById('trimEnd'); el.value = 500; el.dispatchEvent(new Event('input', { bubbles: true })); });
@@ -73,7 +80,47 @@ check(Math.abs(trimLen - 149760 / 2) < 200, `trimmed render length ${trimLen} �
 await page.click('#resetTrim');
 await waitRendered();
 
-// ---- export every available format through the real export path
+// ---- background music: import, mix, play, export stereo
+await page.setInputFiles('#musicInput', path.join(root, 'test/data/music.mp3'));
+await page.waitForFunction(() => { const vm = window.__voxmorph; return vm.state.music && vm.state.mixed && vm.state.mixedKey === vm.mixKey(); }, null, { timeout: 60000 });
+const mixInfo = await page.evaluate(() => { const s = window.__voxmorph.state; return { musicLen: s.music.L.length, mixLen: s.mixed.L.length, voiceStart: s.mixed.voiceStart, convLen: s.converted.length, label: document.querySelector('#playConvBtn span').textContent, status: document.getElementById('mixStatus').textContent }; });
+check(mixInfo.musicLen > 48000 * 20, `music decoded to stereo 48 kHz (${(mixInfo.musicLen / 48000).toFixed(1)} s)`);
+check(mixInfo.mixLen === mixInfo.voiceStart + mixInfo.convLen + 48000 * 2, `mix length = intro + voice + outro (${mixInfo.mixLen})`);
+console.log('  converted button:', mixInfo.label, '| mix status:', mixInfo.status);
+await page.click('#playConvBtn');
+await page.waitForTimeout(500);
+check(await page.evaluate(() => window.__voxmorph.engine.playing && window.__voxmorph.engine.player.buffer.numberOfChannels === 2), 'converted playback uses the stereo mix');
+await page.click('#playConvBtn');
+for (const format of ['wav', 'ogg']) {
+  const b64 = await page.evaluate(async (f) => {
+    const vm = window.__voxmorph;
+    const out = await vm.ensureOutput();
+    const { blob } = await vm.encodeAudio(out, 48000, { format: f, bits: 16, sampleRate: 48000, bitrate: 128 });
+    const buf = new Uint8Array(await blob.arrayBuffer());
+    let s = ''; for (let i = 0; i < buf.length; i += 0x8000) s += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000));
+    return btoa(s);
+  }, format);
+  const file = path.join(root, 'test/out', `e2e_mix.${format}`);
+  fs.writeFileSync(file, Buffer.from(b64, 'base64'));
+  try {
+    const probe = execSync(`ffprobe -v error -show_entries stream=codec_name,sample_rate,channels:format=duration -of csv=p=0 "${file}"`).toString().trim().replace(/\n/g, ' | ');
+    execSync(`ffmpeg -v error -y -i "${file}" -f null - 2>&1`);
+    check(/,2 \|/.test(probe) || /,2\|/.test(probe) || probe.includes(',2'), `stereo mix export ${format}: ${probe}`);
+  } catch (e) { check(false, `stereo mix export ${format} failed: ${e.stdout || e.message}`); }
+}
+// music level change re-mixes; disabling music returns to the mono voice
+await page.evaluate(() => { const el = document.getElementById('musicDb'); el.value = 6; el.dispatchEvent(new Event('input', { bubbles: true })); });
+await page.waitForFunction(() => { const vm = window.__voxmorph; return vm.state.mixed && vm.state.mixedKey === vm.mixKey() && vm.state.mix.musicDb === 6; }, null, { timeout: 60000 });
+check(true, 'changing the music level re-mixes');
+await page.click('label:has(#musicToggle) .slider');
+await page.waitForTimeout(200);
+check(await page.evaluate(() => { const vm = window.__voxmorph; return !vm.state.mix.enabled && document.querySelector('#playConvBtn span').textContent === 'المحوَّل'; }), 'music switched off → converted voice only');
+await page.click('label:has(#musicToggle) .slider');
+await page.waitForFunction(() => { const vm = window.__voxmorph; return vm.state.mix.enabled && vm.state.mixed && vm.state.mixedKey === vm.mixKey(); }, null, { timeout: 60000 });
+
+// ---- export every available format through the real export path (voice only)
+await page.click('label:has(#musicToggle) .slider');
+await page.waitForTimeout(200);
 const formats = ['wav', 'flac', 'ogg', 'webm', 'm4a'];
 for (const format of formats) {
   const available = await page.evaluate((f) => { const o = [...document.querySelectorAll('#formatSelect option')].find((x) => x.value === f); return o && !o.disabled; }, format);
@@ -139,8 +186,11 @@ if (takeScreens) {
   await page.setViewportSize({ width: 1920, height: 1080 });
   await page.setInputFiles('#fileInput', path.join(root, 'test/data/male.wav'));
   await page.waitForFunction(() => document.getElementById('renderStatus').classList.contains('ok'), null, { timeout: 60000 });
+  await page.click('#presetTabs button[data-category="man"]');
   await page.click('.preset[data-preset="broadcaster"]');
   await waitRendered();
+  await page.click('label:has(#musicToggle) .slider');
+  await page.waitForFunction(() => { const vm = window.__voxmorph; return vm.state.mix.enabled && vm.state.mixed && vm.state.mixedKey === vm.mixKey(); }, null, { timeout: 60000 });
   await page.waitForTimeout(400);
   await page.screenshot({ path: path.join(root, 'screenshots', 'voxmorph-ar-1.png') });
   await page.evaluate(() => document.getElementById('fineDetails').open = true);
@@ -150,8 +200,10 @@ if (takeScreens) {
   await page.click('#langBtn');
   await page.waitForTimeout(300);
   check(await page.evaluate(() => document.documentElement.dir) === 'ltr', 'language switched to English (LTR)');
-  await page.click('.preset[data-preset="child"]');
+  await page.click('#presetTabs button[data-category="woman"]');
+  await page.click('.preset[data-preset="woman_anchor"]');
   await waitRendered();
+  await page.waitForFunction(() => { const vm = window.__voxmorph; return vm.state.mixed && vm.state.mixedKey === vm.mixKey(); }, null, { timeout: 60000 });
   await page.waitForTimeout(400);
   await page.screenshot({ path: path.join(root, 'screenshots', 'voxmorph-en-1.png') });
   await page.setViewportSize({ width: 1366, height: 768 });

@@ -7,7 +7,8 @@
 ## المزايا
 
 - تسجيل من المايكروفون (مع اختيار الجهاز ومقياس مستوى الصوت) أو استيراد ملف صوت/فيديو بأي صيغة يقرؤها المتصفح (MP3, WAV, M4A/AAC, OGG/Opus, FLAC, WebM, MP4 …) بالسحب والإفلات أيضاً.
-- ستة قوالب: طفل، امرأة، رجل عجوز، مذيع، تحسين صوتي، مخصص — مع منزلق **شدة التحويل**.
+- **19 نمط صوت** في خمس فئات: **طفل** (طفل صغير، طفل، طفلة، مراهق)، **امرأة** (امرأة، شابة، مذيعة، امرأة هادئة، امرأة مسنّة)، **رجل** (مذيع، راوٍ، شاب، صوت عميق، رجل عجوز)، **مؤثرات** (روبوت، عملاق، كرتوني)، و**أخرى** (تحسين صوتي، مخصص) — مع منزلق **شدة التحويل**.
+- **موسيقى خلفية**: استورد أي ملف موسيقى؛ يُخفَّض مستواها تلقائياً أثناء الكلام (ducking) ويعود بين الجمل، مع مقدمة وخاتمة موسيقية، تلاشٍ في النهاية، تكرار تلقائي إن كانت أقصر من الكلام، وضبط مستوى الموسيقى — والنتيجة ستيريو في كل صيغ الحفظ.
 - **ملاءمة تلقائية لصوتك**: يقيس التطبيق طبقة صوت المتحدث ويختار مقدار التحويل المناسب (رجل أو امرأة أو طفل يحصلون على نفس الصوت الهدف).
 - **ضبط دقيق**: طبقة الصوت، الرنين (حجم الحنجرة)، التنفّس، الاهتزاز، الخشونة، السطوع، الدفء، المعالجة الإذاعية، الضغط الديناميكي، وحفظ قالب خاص.
 - **تنظيف الصوت**: تقليل ضوضاء طيفي، بوابة ضوضاء، تسوية مستوى الصوت إلى LUFS مستهدف (−14 … −23).
@@ -23,6 +24,7 @@
 3. **تغيير الطبقة**: تمديد زمني WSOLA ثم إعادة عيّنة بمرشح sinc متعدد الأطوار (32 tap, Kaiser).
 4. **الطابع**: اهتزاز الشيخوخة (تأخير مُعدَّل + تريمولو غير منتظم)، تنفّس (ضوضاء مشكّلة بالغلاف)، خشونة، معادل صوتي، سلسلة إذاعية (HPF، رفوف، حضور، de-ess)، ضاغط، محدّد قمم بنظر مسبق.
 5. **تسوية** إلى LUFS مستهدف (وفق ITU-R BS.1770 تقريبياً) مع سقف −1 dBFS.
+6. **مزج الموسيقى** (`js/dsp/mixer.js`): تُقاس شدة الموسيقى وتُضبط عند مرجع −22 LUFS، ثم يُطبَّق غلاف خفض (ducking) يستبق الكلام بـ 60 مللي ثانية ويعود خلال ~0.7 ثانية، مع تكرار بتقاطع ناعم ومحدّد قمم ستيريو مرتبط.
 
 المحرك مكتوب بالكامل بـ JavaScript خالص (بدون مكتبات خارجية) في `js/dsp/` ويُستخدم نفسه في العامل (Worker) للتحويل الكامل وفي AudioWorklet للمعاينة الحية.
 
@@ -50,7 +52,8 @@ js/app.js             منطق التطبيق
 js/i18n.js            النصوص بالعربية والإنجليزية
 js/audio-engine.js    المايكروفون، التشغيل، فك الترميز، جسر العامل
 js/dsp/               المحرك: fft, spectral (تقليل ضوضاء + رنين), timescale (WSOLA + resampler),
-                      effects, analysis (YIN, LUFS), presets, pipeline, render-worker, live-processor
+                      effects, analysis (YIN, LUFS), presets (19 نمطاً), pipeline, mixer (الموسيقى),
+                      render-worker, live-processor
 js/export/            pcm (WAV, FLAC), mux (Ogg, WebM, MP4), index (WebCodecs + حفظ)
 manifest.json, sw.js  PWA (عمل دون اتصال)
 privacy.html          سياسة الخصوصية (عربي/إنجليزي)
@@ -66,6 +69,7 @@ python3 test/synth_speech.py      # يولّد إشارات كلام اصطنا�
 node test/render_test.mjs         # يقيس طبقة الصوت والطول لكل قالب
 python3 test/analyze.py           # يقيس نسب الرنين (LPC)
 node test/mux_test.mjs            # يتحقق من الحاويات والمشفّرات بـ ffmpeg
+node test/mixer_test.mjs          # يختبر مزج الموسيقى (الخفض، الطول، الستيريو) وكل الأنماط
 node test/e2e.mjs --screens       # اختبار كامل في Chromium + لقطات الشاشة
 ```
 
@@ -79,4 +83,4 @@ node test/e2e.mjs --screens       # اختبار كامل في Chromium + لقط
 
 ## English summary
 
-VoxMorph is an offline PWA that converts microphone or file audio into a child, woman, old-man or broadcaster voice (plus "enhance" and "custom") for video voice-overs. The pure-JavaScript engine (`js/dsp/`) does spectral noise reduction, cepstral formant warping, WSOLA + polyphase-sinc pitch shifting, character effects (tremor, breath, roughness, EQ, radio chain, compressor, look-ahead limiter) and BS.1770-style loudness normalisation; the same code powers the render Worker and the real-time AudioWorklet monitor. Exports: WAV, FLAC, M4A/AAC, OGG/Opus, WebM/Opus (MP3 via optional lamejs). Publish with GitHub Pages + PWABuilder; the Store listing text is in `docs/store-listing.md`, the privacy policy in `privacy.html`.
+VoxMorph is an offline PWA that converts microphone or file audio into 19 voice styles (child ×4, woman ×5, man ×5, effects ×3, enhance, custom) for video voice-overs, and can lay the result over a background-music bed with automatic ducking, intro/outro and fades (stereo output). The pure-JavaScript engine (`js/dsp/`) does spectral noise reduction, cepstral formant warping, WSOLA + polyphase-sinc pitch shifting, character effects (tremor, breath, roughness, EQ, radio chain, compressor, look-ahead limiter) and BS.1770-style loudness normalisation; the same code powers the render Worker and the real-time AudioWorklet monitor. Exports: WAV, FLAC, M4A/AAC, OGG/Opus, WebM/Opus (MP3 via optional lamejs). Publish with GitHub Pages + PWABuilder; the Store listing text is in `docs/store-listing.md`, the privacy policy in `privacy.html`.

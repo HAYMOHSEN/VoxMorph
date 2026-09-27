@@ -277,34 +277,74 @@ export class Limiter {
     this.enabled = true;
   }
   get latency() { return this.la; }
+  // Gain for the sample that is `la` samples old, given the current peak `a` (monotonic-deque sliding max)
+  _gainFor(a) {
+    const la = this.la, ceiling = this.ceiling, qcap = this.q.length;
+    let qt = this.qt, qh = this.qh;
+    const n = this.n;
+    while (qt !== qh && this.q[(qt - 1 + qcap) % qcap] <= a) qt = (qt - 1 + qcap) % qcap;
+    this.q[qt] = a; this.qi[qt] = n; qt = (qt + 1) % qcap;
+    while (this.qi[qh] <= n - la) qh = (qh + 1) % qcap;
+    const peak = this.q[qh];
+    const target = peak > ceiling ? ceiling / peak : 1;
+    // gain moves down quickly (within the look-ahead), recovers slowly
+    if (target < this.gain) this.gain = this.attCoef * this.gain + (1 - this.attCoef) * target;
+    else this.gain = this.rel * this.gain + (1 - this.rel) * target;
+    this.qt = qt; this.qh = qh; this.n = n + 1;
+    return this.gain;
+  }
   processInPlace(buf) {
     if (!this.enabled) return buf;
-    const la = this.la, ceiling = this.ceiling, delay = this.delay, rel = this.rel;
-    const qcap = this.q.length;
-    let gain = this.gain, dw = this.dw, qh = this.qh, qt = this.qt, n = this.n;
+    const la = this.la, ceiling = this.ceiling, delay = this.delay;
+    let dw = this.dw;
     for (let i = 0; i < buf.length; i++) {
       const x = buf[i];
-      const a = Math.abs(x);
-      // push into monotonic deque (values decreasing from head to tail)
-      while (qt !== qh && this.q[(qt - 1 + qcap) % qcap] <= a) qt = (qt - 1 + qcap) % qcap;
-      this.q[qt] = a; this.qi[qt] = n; qt = (qt + 1) % qcap;
-      // pop expired
-      while (this.qi[qh] <= n - la) qh = (qh + 1) % qcap;
-      const peak = this.q[qh];
-      const target = peak > ceiling ? ceiling / peak : 1;
-      // gain moves down quickly (within the look-ahead), recovers slowly
-      if (target < gain) gain = this.attCoef * gain + (1 - this.attCoef) * target;
-      else gain = rel * gain + (1 - rel) * target;
+      const g = this._gainFor(Math.abs(x));
       const delayed = delay[dw];
       delay[dw] = x;
       dw = (dw + 1) % la;
-      let y = delayed * gain;
-      // safety clip
-      if (y > ceiling) y = ceiling; else if (y < -ceiling) y = -ceiling;
+      let y = delayed * g;
+      if (y > ceiling) y = ceiling; else if (y < -ceiling) y = -ceiling; // safety clip
       buf[i] = y;
-      n++;
     }
-    this.gain = gain; this.dw = dw; this.qh = qh; this.qt = qt; this.n = n;
+    this.dw = dw;
+    return buf;
+  }
+  // Stereo-linked limiting (same gain on both channels). Uses a second delay line for the right channel.
+  processStereoInPlace(L, R) {
+    if (!this.enabled) return;
+    if (!this.delayR) this.delayR = new Float32Array(this.la);
+    const la = this.la, ceiling = this.ceiling, delay = this.delay, delayR = this.delayR;
+    let dw = this.dw;
+    for (let i = 0; i < L.length; i++) {
+      const l = L[i], r = R[i];
+      const g = this._gainFor(Math.max(Math.abs(l), Math.abs(r)));
+      const dl = delay[dw], dr = delayR[dw];
+      delay[dw] = l; delayR[dw] = r;
+      dw = (dw + 1) % la;
+      let yl = dl * g, yr = dr * g;
+      if (yl > ceiling) yl = ceiling; else if (yl < -ceiling) yl = -ceiling;
+      if (yr > ceiling) yr = ceiling; else if (yr < -ceiling) yr = -ceiling;
+      L[i] = yl; R[i] = yr;
+    }
+    this.dw = dw;
+  }
+}
+
+// Ring modulator (robot voice): multiplies the signal by a low-frequency carrier and blends with the dry signal.
+export class RingMod {
+  constructor(fs) { this.fs = fs; this.phase = 0; this.amount = 0; this.freq = 45; }
+  set(amount, freq = 45) { this.amount = Math.max(0, Math.min(1, amount)); this.freq = freq; }
+  processInPlace(buf) {
+    if (this.amount <= 0) return buf;
+    const inc = 2 * Math.PI * this.freq / this.fs, a = this.amount;
+    let ph = this.phase;
+    for (let i = 0; i < buf.length; i++) {
+      const x = buf[i];
+      buf[i] = x * (1 - a) + x * Math.sin(ph) * a * 1.4;
+      ph += inc; if (ph > 2 * Math.PI) ph -= 2 * Math.PI;
+    }
+    this.phase = ph;
     return buf;
   }
 }

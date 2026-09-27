@@ -1,11 +1,11 @@
 // VoxMorph service worker — offline-first app shell with a versioned precache.
-const VERSION = 'voxmorph-v1.0.0';
+const VERSION = 'voxmorph-v1.1.0';
 const ASSETS = [
   './', './index.html', './privacy.html', './manifest.json',
   './css/app.css',
   './js/app.js', './js/i18n.js', './js/audio-engine.js',
   './js/dsp/fft.js', './js/dsp/spectral.js', './js/dsp/timescale.js', './js/dsp/effects.js', './js/dsp/analysis.js',
-  './js/dsp/presets.js', './js/dsp/pipeline.js', './js/dsp/render-worker.js', './js/dsp/live-processor.js',
+  './js/dsp/presets.js', './js/dsp/pipeline.js', './js/dsp/mixer.js', './js/dsp/render-worker.js', './js/dsp/live-processor.js',
   './js/export/pcm.js', './js/export/mux.js', './js/export/index.js', './vendor/lame.min.js',
   './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png', './icons/favicon.png',
 ];

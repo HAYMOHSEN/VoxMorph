@@ -11,9 +11,10 @@ function concatChunks(chunks) {
 }
 
 export class RenderWorker {
-  constructor(url) { this.url = url; this.worker = null; this.pending = new Map(); this.nextId = 1; }
+  constructor(url) { this.url = url; this.worker = null; this.pending = new Map(); this.nextId = 1; this.music = null; this.sentMusicId = null; }
   _ensure() {
     if (this.worker) return;
+    this.sentMusicId = null;
     this.worker = new Worker(this.url, { type: 'module' });
     this.worker.onmessage = (e) => {
       const m = e.data, p = this.pending.get(m.id);
@@ -51,6 +52,31 @@ export class RenderWorker {
       this.pending.set(id, { resolve, reject, onProgress });
       const copy = audio.slice();
       this.worker.postMessage({ id, cmd: 'render', audio: copy, fs, settings, voiceInfo }, [copy.buffer]);
+    });
+  }
+  /** Keep a music track (stereo Float32Arrays) available for mixing; it is re-sent if the worker restarts. */
+  setMusic(music) { this.music = music; this.sentMusicId = null; return this._sendMusic(); }
+  clearMusic() { this.music = null; this.sentMusicId = null; if (this.worker) this.worker.postMessage({ id: this.nextId++, cmd: 'clearMusic' }); }
+  _sendMusic() {
+    this._ensure();
+    if (!this.music) return Promise.resolve(null);
+    if (this.sentMusicId === this.music.id) return Promise.resolve(this.music.id);
+    const id = this.nextId++;
+    const m = this.music;
+    this.sentMusicId = m.id;
+    return new Promise((resolve, reject) => {
+      this.pending.set(id, { resolve: (r) => { if (m.lufs === undefined) m.lufs = r.lufs; resolve(r.musicId); }, reject });
+      const L = m.L.slice(), R = m.R.slice();
+      this.worker.postMessage({ id, cmd: 'setMusic', musicId: m.id, L, R, fs: m.fs }, [L.buffer, R.buffer]);
+    });
+  }
+  async mix(voice, musicId, fs, opts) {
+    await this._sendMusic();
+    const id = this.nextId++;
+    return new Promise((resolve, reject) => {
+      this.pending.set(id, { resolve, reject });
+      const copy = voice.slice();
+      this.worker.postMessage({ id, cmd: 'mix', voice: copy, musicId, fs, opts }, [copy.buffer]);
     });
   }
 }
@@ -161,17 +187,18 @@ export class AudioEngine {
   // ---------------- decoding ----------------
 
   /** Decode any audio/video file to mono Float32Array at 48 kHz. */
-  async decodeFile(file, onStatus = () => {}) {
+  async decodeFile(file, onStatus = () => {}, { stereo = false } = {}) {
     onStatus('decoding');
     const buf = await file.arrayBuffer();
     try {
       const octx = new OfflineAudioContext(1, 1, RATE);
       const ab = await octx.decodeAudioData(buf.slice(0));
-      return this._toMono(ab);
+      return stereo ? this._toStereo(ab) : this._toMono(ab);
     } catch (e) {
       // Fall back to real-time capture through a media element (handles containers the decoder rejects)
       onStatus('decodingSlow');
-      return this._decodeViaMediaElement(file);
+      const mono = await this._decodeViaMediaElement(file);
+      return stereo ? { L: mono, R: mono.slice() } : mono;
     }
   }
 
@@ -181,6 +208,17 @@ export class AudioEngine {
     for (let c = 0; c < ch; c++) { const d = ab.getChannelData(c); for (let i = 0; i < n; i++) out[i] += d[i]; }
     if (ch > 1) for (let i = 0; i < n; i++) out[i] /= ch;
     return out;
+  }
+
+  _toStereo(ab) {
+    const n = ab.length, ch = ab.numberOfChannels;
+    if (ch === 1) { const m = new Float32Array(n); m.set(ab.getChannelData(0)); return { L: m, R: m.slice() }; }
+    const L = new Float32Array(n), R = new Float32Array(n);
+    L.set(ab.getChannelData(0)); R.set(ab.getChannelData(1));
+    if (ch > 2) { // fold extra channels in
+      for (let c = 2; c < ch; c++) { const d = ab.getChannelData(c); for (let i = 0; i < n; i++) { L[i] += d[i] * 0.5; R[i] += d[i] * 0.5; } }
+    }
+    return { L, R };
   }
 
   async _decodeViaMediaElement(file) {
@@ -229,8 +267,9 @@ export class AudioEngine {
   async play(samples, which, offsetSec = 0, onEnded = null) {
     await this.ensureContext();
     this.stop();
-    const buffer = this.ctx.createBuffer(1, samples.length, RATE);
-    buffer.copyToChannel(samples, 0);
+    const chans = Array.isArray(samples) ? samples : [samples];
+    const buffer = this.ctx.createBuffer(chans.length, chans[0].length, RATE);
+    chans.forEach((c, i) => buffer.copyToChannel(c, i));
     const source = this.ctx.createBufferSource();
     source.buffer = buffer;
     source.connect(this.ctx.destination);

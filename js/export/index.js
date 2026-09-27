@@ -51,9 +51,12 @@ export function resampleAudio(samples, from, to) {
   return out.length >= want ? out.subarray(0, want) : out;
 }
 
-async function encodeWithWebCodecs(samples, sampleRate, config) {
+// channels: array of Float32Array (1 = mono, 2 = stereo)
+async function encodeWithWebCodecs(channels, sampleRate, config) {
   const chunks = [];
   let description = null;
+  const nCh = channels.length;
+  const length = channels[0].length;
   const done = new Promise((resolve, reject) => {
     const encoder = new AudioEncoder({
       output: (chunk, meta) => {
@@ -72,9 +75,11 @@ async function encodeWithWebCodecs(samples, sampleRate, config) {
       try {
         encoder.configure(config);
         const block = sampleRate; // one second per AudioData
-        for (let i = 0; i < samples.length; i += block) {
-          const part = samples.slice(i, Math.min(samples.length, i + block));
-          const ad = new AudioData({ format: 'f32-planar', sampleRate, numberOfFrames: part.length, numberOfChannels: 1, timestamp: Math.round((i / sampleRate) * 1e6), data: part });
+        for (let i = 0; i < length; i += block) {
+          const frames = Math.min(length, i + block) - i;
+          const part = new Float32Array(frames * nCh);
+          for (let c = 0; c < nCh; c++) part.set(channels[c].subarray(i, i + frames), c * frames); // planar layout
+          const ad = new AudioData({ format: 'f32-planar', sampleRate, numberOfFrames: frames, numberOfChannels: nCh, timestamp: Math.round((i / sampleRate) * 1e6), data: part });
           encoder.encode(ad);
           ad.close();
         }
@@ -90,14 +95,15 @@ async function encodeWithWebCodecs(samples, sampleRate, config) {
   return { chunks, description };
 }
 
-function encodeMp3(samples, sampleRate, kbps) {
+function encodeMp3(channels, sampleRate, kbps) {
   const lame = globalThis.lamejs;
-  const enc = new lame.Mp3Encoder(1, sampleRate, kbps);
-  const pcm = floatToInt(samples, 16);
+  const enc = new lame.Mp3Encoder(channels.length, sampleRate, kbps);
+  const pcm = channels.map((c) => floatToInt(c, 16));
   const parts = [];
   const block = 1152;
-  for (let i = 0; i < pcm.length; i += block) {
-    const out = enc.encodeBuffer(pcm.subarray(i, Math.min(pcm.length, i + block)));
+  for (let i = 0; i < pcm[0].length; i += block) {
+    const end = Math.min(pcm[0].length, i + block);
+    const out = pcm.length === 2 ? enc.encodeBuffer(pcm[0].subarray(i, end), pcm[1].subarray(i, end)) : enc.encodeBuffer(pcm[0].subarray(i, end));
     if (out.length) parts.push(new Uint8Array(out));
   }
   const end = enc.flush();
@@ -106,43 +112,47 @@ function encodeMp3(samples, sampleRate, kbps) {
 }
 
 /**
- * Encode mono float audio (at `sourceRate`) into the requested format.
+ * Encode float audio (at `sourceRate`) into the requested format.
+ * @param {Float32Array|Float32Array[]} audio mono samples, or an array of 1–2 channels
  * @returns {{ blob: Blob, ext: string, mime: string }}
  */
-export async function encodeAudio(samples, sourceRate, { format = 'wav', bits = 16, sampleRate = 48000, bitrate = 128 } = {}) {
+export async function encodeAudio(audio, sourceRate, { format = 'wav', bits = 16, sampleRate = 48000, bitrate = 128 } = {}) {
   const fmt = FORMATS.find((f) => f.id === format) || FORMATS[0];
   let rate = fmt.rates.includes(sampleRate) ? sampleRate : fmt.rates[0];
-  const x = resampleAudio(samples, sourceRate, rate);
+  const src = Array.isArray(audio) ? audio : [audio];
+  const ch = src.map((c) => resampleAudio(c, sourceRate, rate));
+  const nCh = ch.length;
   let parts;
   switch (fmt.id) {
     case 'wav':
-      parts = [encodeWav([x], rate, bits)];
+      parts = [encodeWav(ch, rate, bits)];
       break;
     case 'flac':
-      parts = [encodeFlac([floatToInt(x, bits)], rate, bits)];
+      parts = [encodeFlac(ch.map((c) => floatToInt(c, bits)), rate, bits)];
       break;
     case 'mp3':
-      parts = encodeMp3(x, rate, bitrate);
+      parts = encodeMp3(ch, rate, bitrate);
       break;
     case 'm4a': {
-      const { chunks, description } = await encodeWithWebCodecs(x, rate, { codec: 'mp4a.40.2', sampleRate: rate, numberOfChannels: 1, bitrate: bitrate * 1000, aac: { format: 'aac' } });
-      parts = [muxM4aAac(chunks, { sampleRate: rate, channels: 1, config: description || makeAacConfig(rate, 1), bitrate: bitrate * 1000 })];
+      const { chunks, description } = await encodeWithWebCodecs(ch, rate, { codec: 'mp4a.40.2', sampleRate: rate, numberOfChannels: nCh, bitrate: bitrate * 1000, aac: { format: 'aac' } });
+      parts = [muxM4aAac(chunks, { sampleRate: rate, channels: nCh, config: description || makeAacConfig(rate, nCh), bitrate: bitrate * 1000 })];
       break;
     }
     case 'ogg':
     case 'webm': {
       let enc;
+      const base = { codec: 'opus', sampleRate: 48000, numberOfChannels: nCh, bitrate: bitrate * 1000 };
       try {
-        enc = await encodeWithWebCodecs(x, 48000, { codec: 'opus', sampleRate: 48000, numberOfChannels: 1, bitrate: bitrate * 1000, opus: { format: 'ogg', frameDuration: 20000 } });
+        enc = await encodeWithWebCodecs(ch, 48000, { ...base, opus: { format: 'ogg', frameDuration: 20000 } });
       } catch (e) {
         // Chromium rejects the 'ogg' framing option: raw packets + a standard OpusHead (pre-skip 312) work as well
-        enc = await encodeWithWebCodecs(x, 48000, { codec: 'opus', sampleRate: 48000, numberOfChannels: 1, bitrate: bitrate * 1000, opus: { frameDuration: 20000 } });
+        enc = await encodeWithWebCodecs(ch, 48000, { ...base, opus: { frameDuration: 20000 } });
       }
       const { chunks, description } = enc;
       const head = description && description.length >= 19 && String.fromCharCode(...description.subarray(0, 8)) === 'OpusHead' ? description : null;
       parts = [fmt.id === 'ogg'
-        ? muxOggOpus(chunks, { opusHead: head, channels: 1, totalSamples: x.length })
-        : muxWebmOpus(chunks, { opusHead: head, channels: 1 })];
+        ? muxOggOpus(chunks, { opusHead: head, channels: nCh, totalSamples: ch[0].length })
+        : muxWebmOpus(chunks, { opusHead: head, channels: nCh })];
       break;
     }
     default:

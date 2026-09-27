@@ -11,13 +11,14 @@
 
 VoxMorph يحوّل أي صوت — من المايكروفون مباشرة أو من ملف صوت أو فيديو بأي صيغة — إلى صوت آخر جاهز للتعليق الصوتي على فيديوهاتك.
 
-اختر القالب واسمع النتيجة فوراً:
-• طفل — صوت مرح عالي الطبقة
-• امرأة — صوت أنثوي ناعم وواضح
-• رجل عجوز — صوت مسنّ مع اهتزاز خفيف
-• مذيع — صوت رجل إعلامي عميق بمعالجة إذاعية احترافية
-• تحسين صوتي — صوتك نفسه بجودة استوديو
-• مخصص — تحكّم كامل بطبقة الصوت والرنين والتنفّس والاهتزاز والسطوع والدفء والضغط
+اختر النمط واسمع النتيجة فوراً — 19 نمطاً في خمس فئات:
+• طفل: طفل صغير، طفل، طفلة، مراهق
+• امرأة: امرأة، شابة، مذيعة، امرأة هادئة، امرأة مسنّة
+• رجل: مذيع، راوٍ، شاب، صوت عميق، رجل عجوز
+• مؤثرات: روبوت، عملاق، كرتوني
+• تحسين صوتي — صوتك نفسه بجودة استوديو، ومخصص — تحكّم كامل بطبقة الصوت والرنين والتنفّس والاهتزاز والسطوع والدفء والضغط
+
+موسيقى خلفية: أضف أي ملف موسيقى تحت صوتك؛ يُخفَّض مستواها تلقائياً أثناء الكلام ويعود بين الجمل، مع مقدمة وخاتمة موسيقية وتلاشٍ في النهاية — والنتيجة ستيريو جاهزة للفيديو.
 
 ملاءمة تلقائية: يقيس التطبيق طبقة صوتك ويختار مقدار التحويل المناسب، فيحصل الرجل والمرأة والطفل على الصوت الهدف نفسه.
 
@@ -31,7 +32,7 @@ VoxMorph يحوّل أي صوت — من المايكروفون مباشرة أ�
 
 يدعم السحب والإفلات، اختصارات لوحة المفاتيح، واجهة عربية وإنجليزية، ويعمل دون اتصال.
 
-**الكلمات المفتاحية:** محول الصوت، تغيير الصوت، تعليق صوتي، صوت طفل، صوت امرأة، صوت مذيع، voice changer، voice over، تسجيل صوت، تحرير صوت
+**الكلمات المفتاحية:** محول الصوت، تغيير الصوت، تعليق صوتي، صوت طفل، صوت امرأة، صوت مذيع، موسيقى خلفية، voice changer، voice over، تسجيل صوت، تحرير صوت
 
 ## English
 
@@ -44,13 +45,14 @@ Turn your voice into a child, woman, old man or broadcaster voice for voice-over
 
 VoxMorph turns any voice — straight from your microphone or from an audio/video file in any format — into another voice, ready to be used as a voice-over on your videos.
 
-Pick a preset and hear the result instantly:
-• Child — playful, high-pitched voice
-• Woman — soft, clear female voice
-• Old man — elderly voice with a gentle tremor
-• Broadcaster — deep announcer voice with professional radio processing
-• Enhance — your own voice with studio polish
-• Custom — full control over pitch, resonance, breathiness, tremor, brightness, warmth and compression
+Pick a style and hear the result instantly — 19 styles in five groups:
+• Child: young child, child, girl, teen boy
+• Woman: woman, young woman, female anchor, soft woman, elderly woman
+• Man: broadcaster, narrator, young man, deep voice, old man
+• Effects: robot, giant, cartoon
+• Enhance — your own voice with studio polish, and Custom — full control over pitch, resonance, breathiness, tremor, brightness, warmth and compression
+
+Background music: add any music file under your voice; it is lowered automatically while you speak and comes back between sentences, with a music intro, outro and fade-out — the result is a stereo file ready for your video.
 
 Adapts to your voice: the app measures your pitch and chooses the right amount of change, so a man, a woman or a child all land on the same target voice.
 
@@ -64,7 +66,7 @@ Complete privacy: everything is processed on your device. No accounts, no intern
 
 Drag & drop, keyboard shortcuts, Arabic and English interface, works offline.
 
-**Keywords:** voice changer, voice over, voiceover, child voice, female voice, announcer voice, pitch shift, formant, audio recorder, audio editor
+**Keywords:** voice changer, voice over, voiceover, child voice, female voice, announcer voice, robot voice, background music, ducking, pitch shift, audio recorder, audio editor
 
 ## Store fields
 

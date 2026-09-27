@@ -34,12 +34,13 @@ a { color: var(--accent2); text-decoration: none; }
 .tagline { color: var(--muted); font-size: .85rem; }
 .topbar-actions { display: flex; gap: 8px; }
 
-.layout { display: grid; align-content: start; grid-template-columns: 1.15fr 1fr; grid-template-areas: "source voice" "export export"; gap: 18px; padding: 18px 22px; max-width: 1400px; margin: 0 auto; width: 100%; flex: 1; }
+.layout { display: grid; align-content: start; grid-template-columns: 1.15fr 1fr; grid-template-areas: "source voice" "music export"; gap: 18px; padding: 18px 22px; max-width: 1400px; margin: 0 auto; width: 100%; flex: 1; }
 .panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; box-shadow: var(--shadow); min-width: 0; }
 .panel.source { grid-area: source; }
 .panel.voice { grid-area: voice; }
 .panel.export { grid-area: export; }
-@media (max-width: 980px) { .layout { grid-template-columns: 1fr; grid-template-areas: "source" "voice" "export"; padding: 14px 16px; } }
+.panel.music { grid-area: music; }
+@media (max-width: 980px) { .layout { grid-template-columns: 1fr; grid-template-areas: "source" "voice" "music" "export"; padding: 14px 16px; } }
 
 /* Buttons */
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; border: 1px solid var(--line); background: var(--panel2); color: var(--text); padding: 9px 14px; border-radius: 10px; cursor: pointer; transition: transform .08s ease, background .15s ease, border-color .15s ease, opacity .15s; white-space: nowrap; }
@@ -148,8 +149,10 @@ details.fine > .fine-grid:last-of-type, details.fine .fine-actions { padding-bot
 .fine-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
 
 /* Export */
-.export-grid { display: grid; grid-template-columns: repeat(3, minmax(140px, 1fr)) 2fr auto; gap: 12px; align-items: end; }
-@media (max-width: 980px) { .export-grid { grid-template-columns: 1fr 1fr; } .export-grid .wide, .export-grid .btn { grid-column: 1 / -1; } }
+.export-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; align-items: end; }
+.export-grid .wide { grid-column: 1 / 3; }
+.export-grid .btn { grid-column: 3; min-width: 0; }
+@media (max-width: 560px) { .export-grid { grid-template-columns: 1fr 1fr; } .export-grid .wide, .export-grid .btn { grid-column: 1 / -1; } }
 .export-grid label { display: flex; flex-direction: column; gap: 6px; font-size: .82rem; color: var(--muted); }
 .export-grid select, .export-grid input { width: 100%; }
 .progress { position: relative; margin-top: 12px; height: 26px; border-radius: 8px; background: #0b0e15; border: 1px solid var(--line); overflow: hidden; }
@@ -172,3 +175,21 @@ dialog p { color: var(--muted); margin: 10px 0 16px; line-height: 1.6; }
 .drop-icon { font-size: 2.4rem; }
 
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+
+/* Preset category tabs */
+.preset-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+.preset-tabs button { border: 1px solid var(--line); background: var(--panel2); color: var(--muted); padding: 7px 14px; border-radius: 999px; cursor: pointer; font-weight: 600; font-size: .88rem; display: inline-flex; align-items: center; gap: 6px; }
+.preset-tabs button:hover { color: var(--text); border-color: #3a4358; }
+.preset-tabs button[aria-selected="true"] { background: var(--accent-grad); color: #fff; border-color: transparent; }
+.preset-tabs button .count { font-size: .7rem; opacity: .75; }
+.presets .preset .pdesc { min-height: 2.6em; }
+.preset .badge { position: absolute; top: 8px; inset-inline-end: 8px; font-size: .62rem; padding: 2px 6px; border-radius: 999px; background: var(--accent); color: #fff; }
+.preset { position: relative; }
+
+/* Music panel */
+.music-top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.music-name { color: var(--muted); font-size: .85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 260px; }
+.music-name.set { color: var(--accent2); }
+.music-grid { margin-top: 14px; }
+.panel.music.disabled .music-grid { opacity: .45; pointer-events: none; }
+#mixStatus { display: inline-block; margin-top: 10px; }
