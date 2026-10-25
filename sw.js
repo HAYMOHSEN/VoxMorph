@@ -1,5 +1,5 @@
 // VoxMorph service worker — offline-first app shell with a versioned precache.
-const VERSION = 'voxmorph-v1.3.1';
+const VERSION = 'voxmorph-v1.3.2';
 // Cross-origin isolation lets onnxruntime-web use several CPU threads (SharedArrayBuffer).
 const COI = true;
 const ASSETS = [

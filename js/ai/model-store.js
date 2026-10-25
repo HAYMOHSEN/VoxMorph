@@ -1,14 +1,58 @@
 // VoxMorph AI — model download + offline storage (Cache Storage). Works in Workers and windows.
 //
-// Each model is one entry keyed by its id. Large files can be published as several `parts`
-// (GitHub Pages refuses files above 100 MB) and are stitched back together on download.
+// Large models are stored as 16 MiB Cache Storage entries to avoid browser limits on single entries.
+// Published model `parts` are stitched during download; cached chunks are joined when the model is loaded.
 
 const CACHE_NAME = 'voxmorph-models-v1';
+const CACHE_CHUNK_SIZE = 16 * 1024 * 1024;
 const keyFor = (id) => `https://models.voxmorph.local/${encodeURIComponent(id)}`;
+const chunkKeyFor = (id, token, index) => `${keyFor(id)}/chunks/${token}/${index}`;
 
 async function openCache() {
   if (typeof caches === 'undefined') throw new Error('Cache Storage is not available');
   return caches.open(CACHE_NAME);
+}
+
+async function storedChunks(cache, id) {
+  const res = await cache.match(keyFor(id));
+  const count = Number(res && res.headers.get('x-chunk-count'));
+  const token = res && res.headers.get('x-chunk-token');
+  return count > 0 && token ? { count, token } : null;
+}
+
+async function deleteChunks(cache, id, info) {
+  if (!info) return;
+  for (let i = 0; i < info.count; i++) await cache.delete(chunkKeyFor(id, info.token, i));
+}
+
+async function storeModel(cache, id, bytes, headers) {
+  const previous = await storedChunks(cache, id);
+  if (bytes.byteLength <= CACHE_CHUNK_SIZE) {
+    await cache.put(keyFor(id), new Response(bytes, { headers }));
+    await deleteChunks(cache, id, previous);
+    return;
+  }
+
+  const token = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const count = Math.ceil(bytes.byteLength / CACHE_CHUNK_SIZE);
+  let written = 0;
+  try {
+    for (let i = 0; i < count; i++) {
+      const start = i * CACHE_CHUNK_SIZE;
+      const chunk = bytes.subarray(start, Math.min(start + CACHE_CHUNK_SIZE, bytes.byteLength));
+      await cache.put(chunkKeyFor(id, token, i), new Response(chunk, {
+        headers: { 'Content-Type': 'application/octet-stream', 'X-Chunk-Part': String(i) },
+      }));
+      written++;
+    }
+    await cache.put(keyFor(id), new Response(null, {
+      headers: { ...headers, 'X-Chunk-Count': String(count), 'X-Chunk-Token': token },
+    }));
+  } catch (e) {
+    await deleteChunks(cache, id, { count: written, token });
+    throw e;
+  }
+  await deleteChunks(cache, id, previous);
 }
 
 export async function requestPersistence() {
@@ -29,6 +73,7 @@ export async function installedModels() {
   for (const req of keys) {
     const res = await cache.match(req);
     if (!res) continue;
+    if (res.headers.has('x-chunk-part')) continue;
     const id = decodeURIComponent(req.url.split('/').pop());
     out.push({ id, size: Number(res.headers.get('x-size') || 0), sha256: res.headers.get('x-sha256') || '', version: res.headers.get('x-version') || '' });
   }
@@ -45,13 +90,33 @@ export async function isInstalled(id, expectedSha = '') {
 
 export async function removeModel(id) {
   const cache = await openCache();
-  return cache.delete(keyFor(id));
+  const chunks = await storedChunks(cache, id);
+  const removed = await cache.delete(keyFor(id));
+  await deleteChunks(cache, id, chunks);
+  return removed;
 }
 
 export async function loadModelBytes(id) {
   const cache = await openCache();
   const res = await cache.match(keyFor(id));
   if (!res) throw new Error(`model ${id} is not installed`);
+  const chunks = await storedChunks(cache, id);
+  if (chunks) {
+    const size = Number(res.headers.get('x-size') || 0);
+    if (!Number.isSafeInteger(size) || size <= 0) throw new Error(`model ${id} has an invalid stored size`);
+    const all = new Uint8Array(size);
+    let offset = 0;
+    for (let i = 0; i < chunks.count; i++) {
+      const part = await cache.match(chunkKeyFor(id, chunks.token, i));
+      if (!part) throw new Error(`model ${id} is incomplete (missing chunk ${i + 1}/${chunks.count})`);
+      const bytes = new Uint8Array(await part.arrayBuffer());
+      if (offset + bytes.byteLength > size) throw new Error(`model ${id} has oversized stored chunks`);
+      all.set(bytes, offset);
+      offset += bytes.byteLength;
+    }
+    if (offset !== size) throw new Error(`model ${id} size mismatch: expected ${size} bytes, got ${offset}`);
+    return all.buffer;
+  }
   return res.arrayBuffer();
 }
 
@@ -109,7 +174,7 @@ export async function installModel(item, onProgress = () => {}, signal = null, b
   }
   const cache = await openCache();
   const headers = { 'Content-Type': 'application/octet-stream', 'X-Size': String(size), 'X-Sha256': sha || (item.sha256 || ''), 'X-Version': String(item.version || '') };
-  try { await cache.put(keyFor(item.id), new Response(all, { headers })); }
+  try { await storeModel(cache, item.id, all, headers); }
   catch (e) { if (e && /quota/i.test(e.name + ' ' + e.message)) { const err = new Error(`not enough browser storage to keep this model (${(size / 1e6).toFixed(0)} MB): ${e.message}`); err.code = 'quota'; throw err; } throw e; }
   await requestPersistence();
   return { id: item.id, size, sha256: sha };
@@ -122,7 +187,7 @@ export async function installFromBuffer(id, buffer, meta = {}) {
   try { sha = await sha256Hex(u8.buffer.byteLength === u8.byteLength ? u8.buffer : u8.slice().buffer); } catch { /* ignore */ }
   const cache = await openCache();
   const headers = { 'Content-Type': 'application/octet-stream', 'X-Size': String(u8.byteLength), 'X-Sha256': sha, 'X-Version': String(meta.version || 'local') };
-  await cache.put(keyFor(id), new Response(u8, { headers }));
+  await storeModel(cache, id, u8, headers);
   await requestPersistence();
   return { id, size: u8.byteLength, sha256: sha };
 }
