@@ -1,0 +1,41 @@
+ATTRIBUTION AND LICENSES
+
+VOICE CHECKPOINTS
+Creator/publisher: Nekochu, RVC-VCTK_Voice-sample.
+Source: https://huggingface.co/Nekochu/RVC-VCTK_Voice-sample
+Pinned revision: 005c2f948ee9dafd7e3aa7f261b4c3a24beebeef
+Original files:
+  F/p231/rmvpe/Fp231rmvpe.pth
+  M/p226/rmvpe/Mp226rmvpe.pth
+Model card declares Apache License 2.0. Preserve the model card and Apache-2.0.txt.
+Original checkpoints are unchanged. The ONNX files are float32 inference exports created
+from these checkpoints, without retraining. No claim of endorsement is made.
+The shipped ONNX graphs additionally have the NSF sine-source phase computation rewritten in a
+numerically stable form (tools/fix_rvc_onnx_sine.py); no weight is modified. Checksums of the
+shipped files and of the original exports are listed in voices-provenance.json.
+
+TRAINING CORPUS
+Junichi Yamagishi, Christophe Veaux and Kirsten MacDonald (2019).
+CSTR VCTK Corpus: English Multi-speaker Corpus for CSTR Voice Cloning Toolkit, v0.92.
+University of Edinburgh, Centre for Speech Technology Research.
+https://doi.org/10.7488/ds/2645
+CC BY 4.0; the publisher-provided license text is CC-BY-4.0-VCTK.txt.
+
+RECORDED ARABIC INPUT AND MODIFIED OUTPUTS
+Google FLEURS, ar_eg, test, row index 2, dataset sentence ID 1995.
+Original filename: 10080665469720750912.wav. Duration: 16.02 s at 16000 Hz.
+Source: https://huggingface.co/datasets/google/fleurs
+License declared by Google: Creative Commons Attribution 4.0 International.
+https://creativecommons.org/licenses/by/4.0/
+Original input bytes have not been changed. The two converted recordings are modified versions
+using local RVC conversion, normalization and the pitch shifts documented in their report.
+Credit Google FLEURS when redistributing the recordings, including the modified recordings.
+This audio is an input test fixture, not a new training set for the bundled voice models.
+No endorsement by the corpus speakers, publishers or model author is implied.
+
+EXPORT SOURCE
+https://github.com/Mangio621/Mangio-RVC-Fork, MIT License, retained in source/LICENSE.
+Exact source blob hashes are in source/source-provenance.json.
+RMVPE feature/decode reference: IAHispano/Applio,
+rvc/lib/predictors/RMVPE.py, blob fc1f5b53e784706b1212a87b036058138c1d3008.
+No Applio model weights or application are bundled.

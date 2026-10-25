@@ -1,0 +1,89 @@
+{
+  "version": 1,
+  "name": "VoxMorph AI voice pack",
+  "engine": {
+    "contentvec": {
+      "id": "contentvec-768-l12",
+      "label": {
+        "ar": "محرك فهم الصوت (ContentVec)",
+        "en": "Speech-content model (ContentVec)"
+      },
+      "url": "https://huggingface.co/NaruseMioShirakana/MoeSS-SUBModel/resolve/main/vec-768-layer-12.onnx",
+      "size": 377655729,
+      "sha256": "b3886e7dff1495cda514f94f4680a7b1261e05d6929f5c764cdb17934b413c2a",
+      "dims": 768,
+      "version": "1",
+      "note": "For a commercial build export your own file from the MIT ContentVec checkpoint with tools/export_contentvec_onnx.py and point this URL to your copy."
+    },
+    "rmvpe": {
+      "id": "rmvpe",
+      "label": {
+        "ar": "كاشف طبقة الصوت الدقيق (RMVPE، اختياري)",
+        "en": "Precise pitch tracker (RMVPE, optional)"
+      },
+      "url": "https://huggingface.co/lj1995/VoiceConversionWebUI/resolve/main/rmvpe.onnx",
+      "size": 361688443,
+      "sha256": "5370e71ac80af8b4b7c793d27efd51fd8bf962de3a7ede0766dac0befa3660fd",
+      "version": "1",
+      "optional": true
+    }
+  },
+  "voices": [
+    {
+      "id": "female-p231",
+      "name": {
+        "ar": "امرأة (AI) — p231",
+        "en": "Woman (AI) — p231"
+      },
+      "desc": {
+        "ar": "صوت أنثوي طبيعي من نموذج عصبي مدرَّب على VCTK",
+        "en": "Natural female voice, neural model trained on VCTK"
+      },
+      "category": "woman",
+      "parts": [
+        "./parts/female-p231.onnx.000",
+        "./parts/female-p231.onnx.001",
+        "./parts/female-p231.onnx.002",
+        "./parts/female-p231.onnx.003",
+        "./parts/female-p231.onnx.004"
+      ],
+      "size": 110786977,
+      "sha256": "d2c026c7ff3458f9f9d7f0023221da6b7f65e84d4e2e351975f9933d7a6fea82",
+      "sampleRate": 40000,
+      "version": 2,
+      "dims": 768,
+      "speakerId": 0,
+      "targetF0": 185,
+      "license": "Model: Apache-2.0 (Nekochu/RVC-VCTK_Voice-sample); training data: VCTK, CC BY 4.0",
+      "note": "ONNX export with the NSF sine source made float32-stable (tools/fix_rvc_onnx_sine.py); weights unchanged"
+    },
+    {
+      "id": "male-p226",
+      "name": {
+        "ar": "رجل (AI) — p226",
+        "en": "Man (AI) — p226"
+      },
+      "desc": {
+        "ar": "صوت ذكوري طبيعي من نموذج عصبي مدرَّب على VCTK",
+        "en": "Natural male voice, neural model trained on VCTK"
+      },
+      "category": "man",
+      "parts": [
+        "./parts/male-p226.onnx.000",
+        "./parts/male-p226.onnx.001",
+        "./parts/male-p226.onnx.002",
+        "./parts/male-p226.onnx.003",
+        "./parts/male-p226.onnx.004"
+      ],
+      "size": 110786977,
+      "sha256": "a43789bddd7f45b325c5871ffb630ee251d5c0d29a133da089d9b0e6cde65997",
+      "sampleRate": 40000,
+      "version": 2,
+      "dims": 768,
+      "speakerId": 0,
+      "targetF0": 110,
+      "license": "Model: Apache-2.0 (Nekochu/RVC-VCTK_Voice-sample); training data: VCTK, CC BY 4.0",
+      "note": "ONNX export with the NSF sine source made float32-stable (tools/fix_rvc_onnx_sine.py); weights unchanged"
+    }
+  ]
+}

@@ -3,6 +3,8 @@ import { STRINGS, t, setLanguage, detectLanguage, getLanguage, applyI18n, format
 import { AudioEngine, RenderWorker, RATE } from './audio-engine.js';
 import { PRESETS, PRESET_IDS, CATEGORIES, presetsInCategory, defaultSettings, resolveSettings } from './dsp/presets.js';
 import { DEFAULT_MIX } from './dsp/mixer.js';
+import { AiClient, pickText, formatBytes } from './ai/ai-client.js';
+import { AI_STYLES, AI_STYLE_IDS, isAiVoiceId, isAiStyleId, styleOf, baseVoiceFor, aiTranspose, aiPostSettings } from './ai/styles.js';
 import { FORMATS, detectSupport, formatAvailable, encodeAudio, saveBlob } from './export/index.js';
 
 const $ = (id) => document.getElementById(id);
@@ -26,13 +28,27 @@ const state = {
   mix: Object.assign({}, DEFAULT_MIX),
   mixed: null, mixedKey: '', mixing: false,
   playVoiceStart: 0,
+  aiProgress: {},      // modelId → { progress, loaded, total }
+  aiBusy: '',
 };
+const isAiPreset = (id) => isAiVoiceId(id) || isAiStyleId(id);
+const aiStyleOf = (id) => styleOf(id);
+/** Neural voice behind a preset id: the voice itself ('ai:…') or the base voice of a derived style ('ais:…'). */
+const aiVoiceOf = (id) => {
+  if (!ai.manifest) return null;
+  if (isAiVoiceId(id)) return ai.voiceById(id.slice(3));
+  const style = styleOf(id);
+  return style ? baseVoiceFor(style, ai.voices, (x) => ai.isInstalled(x)) : null;
+};
+const aiReady = (voice) => !!(voice && ai.isInstalled(voice.id) && ai.engineInstalled && ai.state.available);
+const NEUTRAL = { preset: 'custom', intensity: 1, auto: false, pitchOffset: 0, formantOffset: 0, breath: 0, tremor: 0, rough: 0, brightness: 0, warmth: 0, radio: false, compress: 0, ringMod: 0, nr: { enabled: false, strength: 0 }, gate: { enabled: false, thresholdDb: -48 }, normalize: { enabled: false, targetLufs: -16 } };
 
 const engine = new AudioEngine({
   onLevel: (peak, rms) => { state.levelPeak = peak; state.levelRms = rms; if (peak > state.levelHold) state.levelHold = peak; },
   onRecordingProgress: (sec) => { $('recTime').textContent = formatTime(sec); },
 });
 const worker = new RenderWorker('./js/dsp/render-worker.js');
+const ai = new AiClient({ manifestUrl: (() => { try { return localStorage.getItem('voxmorph.ai.manifest') || './models/manifest.json'; } catch { return './models/manifest.json'; } })() });
 let renderTimer = null, liveTimer = null, renderSeq = 0, mixTimer = null, mixSeq = 0;
 let activeRender = { key: '', promise: null };
 let activeMix = { key: '', promise: null };
@@ -58,10 +74,11 @@ function selection() {
 }
 function selectionDuration() { return state.trim.end - state.trim.start; }
 function defaultFileName() {
-  if (state.nameBase) return `${state.nameBase}-${state.settings.preset}`;
+  const presetName = String(state.settings.preset).replace(/^ais?:(ai_)?/, 'ai-').replace(/[^\w.-]+/g, '-');
+  if (state.nameBase) return `${state.nameBase}-${presetName}`;
   const d = new Date();
   const pad = (n) => String(n).padStart(2, '0');
-  return `VoxMorph-${state.settings.preset}-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}`;
+  return `VoxMorph-${presetName}-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}`;
 }
 function refreshFileName(force = false) {
   if (force || !state.fileNameDirty) { $('fileName').value = defaultFileName(); state.fileNameDirty = false; }
@@ -253,6 +270,25 @@ function renderNow() {
   activeRender = { key, promise };
   return promise;
 }
+/** Render one segment with the DSP engine, or with an AI voice (clean → neural conversion → post-processing). */
+async function renderSegment(seg, settings, seq, onProgress) {
+  const voice = aiVoiceOf(settings.preset);
+  if (!voice) return (await worker.render(seg, RATE, settings, state.voiceInfo, onProgress)).audio;
+  let x = seg;
+  if (settings.nr && settings.nr.enabled) {
+    const pre = { ...NEUTRAL, nr: { enabled: true, strength: settings.nr.strength } };
+    x = (await worker.render(x, RATE, pre, state.voiceInfo, null)).audio;
+    if (seq !== renderSeq) throw new Error('cancelled');
+  }
+  const style = aiStyleOf(settings.preset);
+  const transpose = aiTranspose(settings, voice, style, state.voiceInfo);
+  setStatus(t('aiLoadingModels'), 'busy');
+  const r = await ai.convert(voice, x, RATE, { transpose, f0Method: settings.aiF0 || 'auto' }, (p) => { if (seq === renderSeq) setStatus(`${t('aiConverting')} ${Math.round(p * 100)}%`, 'busy'); });
+  if (seq !== renderSeq) throw new Error('cancelled');
+  // character layer on the neural output: vocal tract, breath, tremor, roughness, tone (no pitch shift here)
+  const post = aiPostSettings(settings, style, NEUTRAL);
+  return (await worker.render(r.audio, RATE, post, null, null)).audio;
+}
 async function runRender(key) {
   const seq = ++renderSeq;
   if (worker.busy) worker.cancelAll();
@@ -263,14 +299,14 @@ async function runRender(key) {
   try {
     const dur = sel.length / RATE;
     if (dur > PREVIEW_THRESHOLD && !(state.preview && state.previewKey === key)) {
-      const r = await worker.render(sel.subarray(0, PREVIEW_SECONDS * RATE), RATE, settings, state.voiceInfo, null);
+      const audio = await renderSegment(sel.subarray(0, PREVIEW_SECONDS * RATE), settings, seq, null);
       if (seq !== renderSeq) return;
-      state.preview = r.audio; state.previewKey = key;
+      state.preview = audio; state.previewKey = key;
       updateTransport();
     }
-    const r = await worker.render(sel, RATE, settings, state.voiceInfo, (p) => { if (seq === renderSeq && dur > 6) setStatus(`${t('rendering')} ${Math.round(p * 100)}%`, 'busy'); });
+    const audio = await renderSegment(sel, settings, seq, (p) => { if (seq === renderSeq && dur > 6) setStatus(`${t('rendering')} ${Math.round(p * 100)}%`, 'busy'); });
     if (seq !== renderSeq) return;
-    state.converted = r.audio; state.convertedKey = key;
+    state.converted = audio; state.convertedKey = key;
     state.rendering = false;
     setStatus(t('ready'), 'ok');
     updateTransport();
@@ -279,7 +315,7 @@ async function runRender(key) {
     if (seq !== renderSeq) return;
     state.rendering = false;
     setStatus('');
-    if (String(e.message) !== 'cancelled') toast(String(e.message || e), 'error');
+    if (String(e.message) !== 'cancelled') toast((isAiPreset(state.settings.preset) ? t('aiError') + ': ' : '') + String(e.message || e), 'error', 6000);
   } finally {
     if (activeRender.key === key && seq === renderSeq) activeRender = { key: '', promise: null };
   }
@@ -410,15 +446,26 @@ function onSettingsChanged(opts = {}) {
   refreshFileName();
 }
 function selectPreset(id, { keepFine = false } = {}) {
-  if (!PRESETS[id]) id = 'broadcaster';
+  let aiVoice = isAiPreset(id) ? aiVoiceOf(id) : null;
+  if (!PRESETS[id] && !aiVoice) { id = 'broadcaster'; aiVoice = null; }
   state.settings.preset = id;
   if (!keepFine) {
     Object.assign(state.settings, { pitchOffset: 0, formantOffset: 0, breath: null, tremor: null, rough: null, brightness: null, warmth: null, radio: null, compress: null, ringMod: null });
   }
-  if (PRESETS[id].category !== state.activeCategory) { state.activeCategory = PRESETS[id].category; renderPresetPicker(); }
+  const cat = aiVoice ? 'ai' : PRESETS[id].category;
+  if (cat !== state.activeCategory) { state.activeCategory = cat; renderPresetPicker(); }
   document.querySelectorAll('.preset').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.preset === id)));
+  if (aiVoice && state.live) { $('liveToggle').checked = false; setLive(false); }
+  updateLiveAvailability();
   onSettingsChanged();
 }
+function updateLiveAvailability() {
+  const aiSel = isAiPreset(state.settings.preset);
+  $('liveToggle').disabled = aiSel;
+  const hint = document.querySelector('.live-row .hint');
+  if (hint) hint.textContent = aiSel ? t('aiLiveUnavailable') : t('liveHint');
+}
+const TAB_ORDER = ['ai', ...CATEGORIES];
 const CATEGORY_ICONS = {
   child: '<svg viewBox="0 0 48 48" class="pic" aria-hidden="true"><circle cx="24" cy="22" r="12" fill="none" stroke="currentColor" stroke-width="2.5"/><path d="M17 20c1 0 2 .5 2 1.5M29 20c1 0 2 .5 2 1.5" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/><path d="M18 27c2 3 10 3 12 0" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/><path d="M14 14c2-6 18-6 20 0" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/><path d="M10 44c2-8 26-8 28 0" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>',
   woman: '<svg viewBox="0 0 48 48" class="pic" aria-hidden="true"><path d="M13 30c-2-14 4-22 11-22s13 8 11 22" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/><circle cx="24" cy="21" r="8" fill="none" stroke="currentColor" stroke-width="2.5"/><path d="M8 44c3-9 29-9 32 0" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>',
@@ -439,16 +486,22 @@ const CATEGORY_KEYS = { child: 'catChild', woman: 'catWoman', man: 'catMan', fx:
 function renderPresetPicker() {
   const tabs = $('presetTabs');
   tabs.innerHTML = '';
-  for (const cat of CATEGORIES) {
+  for (const cat of TAB_ORDER) {
     const b = document.createElement('button');
     b.type = 'button'; b.setAttribute('role', 'tab'); b.dataset.category = cat;
     b.setAttribute('aria-selected', String(cat === state.activeCategory));
-    b.innerHTML = `<span>${t(CATEGORY_KEYS[cat])}</span><span class="count">${presetsInCategory(cat).length}</span>`;
+    if (cat === 'ai') {
+      const n = ai.manifest ? ai.voices.length + AI_STYLE_IDS.length : 0;
+      b.innerHTML = `<span>✦ ${t('catAi')}</span><span class="count">${n}</span>`;
+      b.classList.add('ai-tab');
+      if (ai.state.engineLoaded) b.classList.add('ready');
+    } else b.innerHTML = `<span>${t(CATEGORY_KEYS[cat])}</span><span class="count">${presetsInCategory(cat).length}</span>`;
     b.addEventListener('click', () => { state.activeCategory = cat; renderPresetPicker(); });
     tabs.appendChild(b);
   }
   const grid = $('presets');
   grid.innerHTML = '';
+  if (state.activeCategory === 'ai') { renderAiPanel(grid); return; }
   for (const id of presetsInCategory(state.activeCategory)) {
     const card = document.createElement('button');
     card.type = 'button'; card.className = 'preset'; card.dataset.preset = id; card.setAttribute('role', 'radio');
@@ -461,25 +514,207 @@ function renderPresetPicker() {
 function syncFineControls() {
   const s = state.settings;
   const p = resolveSettings(s, state.voiceInfo);
+  const aiVoice = isAiPreset(s.preset) ? aiVoiceOf(s.preset) : null;
+  const aiStyle = aiStyleOf(s.preset);
+  // with a neural voice the generator does the pitch; the character controls act on its output
+  const eff = aiVoice ? aiPostSettings(s, aiStyle, NEUTRAL) : null;
   $('intensity').value = Math.round(s.intensity * 100); $('intensityVal').textContent = `${Math.round(s.intensity * 100)}%`;
   $('autoToggle').checked = !!s.auto;
-  $('pitchOffset').value = s.pitchOffset; $('pitchOffsetVal').textContent = `${s.pitchOffset > 0 ? '+' : ''}${s.pitchOffset} ${t('semitones')} (${p.semitones >= 0 ? '+' : ''}${p.semitones.toFixed(1)})`;
-  $('formantOffset').value = s.formantOffset; $('formantOffsetVal').textContent = `${s.formantOffset > 0 ? '+' : ''}${s.formantOffset}% (×${p.formantRatio.toFixed(2)})`;
+  $('pitchOffset').value = s.pitchOffset;
+  if (aiVoice) { const tr = aiTranspose(s, aiVoice, aiStyle, state.voiceInfo); $('pitchOffsetVal').textContent = `${s.pitchOffset > 0 ? '+' : ''}${s.pitchOffset} ${t('semitones')} (${t('aiTranspose')} ${tr >= 0 ? '+' : ''}${tr})`; }
+  else $('pitchOffsetVal').textContent = `${s.pitchOffset > 0 ? '+' : ''}${s.pitchOffset} ${t('semitones')} (${p.semitones >= 0 ? '+' : ''}${p.semitones.toFixed(1)})`;
+  const formantRatio = eff ? 1 + eff.formantOffset / 100 : p.formantRatio;
+  $('formantOffset').value = s.formantOffset; $('formantOffsetVal').textContent = `${s.formantOffset > 0 ? '+' : ''}${s.formantOffset}% (×${formantRatio.toFixed(2)})`;
   const setR = (id, v, fmt) => { $(id).value = v; $(id + 'Val').textContent = fmt(v); };
-  setR('breath', Math.round(p.breath * 100), (v) => v);
-  setR('tremor', Math.round(p.tremor * 100), (v) => v);
-  setR('rough', Math.round(p.rough * 100), (v) => v);
-  setR('brightness', Math.round(p.brightness * 2) / 2, (v) => `${v > 0 ? '+' : ''}${v} dB`);
-  setR('warmth', Math.round(p.warmth * 2) / 2, (v) => `${v > 0 ? '+' : ''}${v} dB`);
-  setR('compress', Math.round(p.compress * 100), (v) => v);
-  $('radioToggle').checked = p.radio;
+  const q = eff || p;
+  setR('breath', Math.round(q.breath * 100), (v) => v);
+  setR('tremor', Math.round(q.tremor * 100), (v) => v);
+  setR('rough', Math.round(q.rough * 100), (v) => v);
+  setR('brightness', Math.round(q.brightness * 2) / 2, (v) => `${v > 0 ? '+' : ''}${v} dB`);
+  setR('warmth', Math.round(q.warmth * 2) / 2, (v) => `${v > 0 ? '+' : ''}${v} dB`);
+  setR('compress', Math.round(q.compress * 100), (v) => v);
+  $('radioToggle').checked = q.radio;
   $('nrToggle').checked = s.nr.enabled; $('nrStrength').value = Math.round(s.nr.strength * 100); $('nrStrengthVal').textContent = Math.round(s.nr.strength * 100);
   $('nrStrength').disabled = !s.nr.enabled;
   $('gateToggle').checked = s.gate.enabled;
   $('normToggle').checked = s.normalize.enabled; $('normTarget').value = String(s.normalize.targetLufs); $('normTarget').disabled = !s.normalize.enabled;
 }
+// ------------------------------------------------------------------ AI voices panel
+let aiPanelTimer = null;
+function scheduleAiPanel() { clearTimeout(aiPanelTimer); aiPanelTimer = setTimeout(() => { if (state.activeCategory === 'ai') renderPresetPicker(); }, 120); }
+function aiItemState(item) {
+  if (!item) return 'missing';
+  const p = state.aiProgress[item.id];
+  if (p && p.active) return 'downloading';
+  return ai.isInstalled(item.id) ? 'installed' : 'absent';
+}
+async function aiInstall(item) {
+  state.aiProgress[item.id] = { active: true, progress: 0, loaded: 0, total: item.size || 0 };
+  scheduleAiPanel();
+  try {
+    await ai.install(item, (p, loaded, total) => { state.aiProgress[item.id] = { active: true, progress: p, loaded, total }; scheduleAiPanel(); });
+    toast(`${t('aiInstalled')}: ${pickText(item.label || item.name, getLanguage())}`, 'ok');
+  } catch (e) {
+    if (!/abort/i.test(String(e.message))) toast(`${t('aiError')}: ${e.message}`, 'error', 7000);
+  } finally {
+    delete state.aiProgress[item.id];
+    scheduleAiPanel();
+  }
+}
+function aiButton(label, cls, onClick) { const b = document.createElement('button'); b.type = 'button'; b.className = 'btn small ' + cls; b.textContent = label; b.addEventListener('click', (e) => { e.stopPropagation(); onClick(); }); return b; }
+function pickFile(accept) {
+  return new Promise((resolve) => {
+    const inp = document.createElement('input'); inp.type = 'file'; inp.accept = accept; inp.style.display = 'none';
+    inp.addEventListener('change', () => { resolve(inp.files[0] || null); inp.remove(); });
+    document.body.appendChild(inp); inp.click();
+  });
+}
+async function aiImportEngineFile(kind) {
+  const file = await pickFile('.onnx');
+  if (!file) return;
+  state.aiBusy = kind; scheduleAiPanel();
+  try { await ai.installFile(file, { id: `local-engine-${kind}`, kind: 'engine' }); toast(`${t('aiImported')}: ${file.name}`, 'ok'); }
+  catch (e) { toast(`${t('aiError')}: ${e.message}`, 'error', 7000); }
+  finally { state.aiBusy = ''; scheduleAiPanel(); }
+}
+async function aiImportVoiceFile() {
+  const file = await pickFile('.onnx');
+  if (!file) return;
+  const name = (window.prompt(t('aiVoiceName'), file.name.replace(/\.onnx$/i, '')) || file.name.replace(/\.onnx$/i, '')).trim();
+  state.aiBusy = 'voice'; scheduleAiPanel();
+  try { await ai.installFile(file, { kind: 'voice', meta: { name, category: 'other' } }); toast(`${t('aiImported')}: ${name}`, 'ok'); }
+  catch (e) { toast(`${t('aiError')}: ${e.message}`, 'error', 7000); }
+  finally { state.aiBusy = ''; scheduleAiPanel(); }
+}
+function aiItemControls(item, kind) {
+  const wrap = document.createElement('div'); wrap.className = 'ai-controls';
+  const st = aiItemState(item);
+  const size = document.createElement('span'); size.className = 'ai-size'; size.textContent = formatBytes(item.size); wrap.appendChild(size);
+  if (st === 'downloading') {
+    const p = state.aiProgress[item.id];
+    const bar = document.createElement('div'); bar.className = 'ai-bar'; bar.innerHTML = `<div style="width:${Math.round((p.progress || 0) * 100)}%"></div>`;
+    const txt = document.createElement('span'); txt.className = 'ai-pct'; txt.textContent = `${Math.round((p.progress || 0) * 100)}% · ${formatBytes(p.loaded)}`;
+    wrap.append(bar, txt, aiButton(t('aiCancel'), 'ghost', () => ai.cancelInstall(item.id)));
+  } else if (st === 'installed') {
+    const ok = document.createElement('span'); ok.className = 'status-chip ok'; ok.textContent = item.local ? `${t('aiInstalled')} · ${t('aiLocal')}` : t('aiInstalled'); wrap.appendChild(ok);
+    wrap.appendChild(aiButton(t('aiRemove'), 'ghost', async () => {
+      await ai.remove(item.id);
+      if (item.local && kind === 'voice') ai.removeLocalVoice(item.id);
+      if (isAiPreset(state.settings.preset) && (state.settings.preset === 'ai:' + item.id || !aiVoiceOf(state.settings.preset) || aiVoiceOf(state.settings.preset).id === item.id)) selectPreset('broadcaster');
+      scheduleAiPanel();
+    }));
+  } else {
+    const disabled = kind === 'voice' && !ai.engineInstalled;
+    if (item.url || (item.parts && item.parts.length)) {
+      const b = aiButton(`${t('aiDownload')}`, 'primary', () => aiInstall(item));
+      if (disabled) { b.disabled = true; b.title = t('aiEngineRequired'); }
+      wrap.appendChild(b);
+    }
+    if (kind === 'engine') {
+      const fileKind = item.id.includes('rmvpe') || /rmvpe/i.test(String(item.label && (item.label.en || item.label))) ? 'rmvpe' : 'contentvec';
+      const imp = aiButton(t('aiImportFile'), 'secondary', () => aiImportEngineFile(fileKind));
+      imp.id = fileKind === 'rmvpe' ? 'aiImportRmvpe' : 'aiImportCv';
+      if (state.aiBusy === fileKind) imp.disabled = true;
+      wrap.appendChild(imp);
+    }
+  }
+  return wrap;
+}
+function renderAiPanel(grid) {
+  const lang = getLanguage();
+  const panel = document.createElement('div'); panel.className = 'ai-panel';
+  const head = document.createElement('div'); head.className = 'ai-head';
+  head.innerHTML = `<h3>${t('aiTitle')}</h3><p class="hint small">${t('aiIntro')}</p>`;
+  panel.appendChild(head);
+  // runtime / engine card
+  const eng = document.createElement('div'); eng.className = 'ai-engine';
+  const status = document.createElement('div'); status.className = 'ai-row';
+  let chip = '';
+  if (!ai.state.available && ai.state.reason === 'ort-missing') chip = `<span class="status-chip">${t('aiNoRuntime')}</span>`;
+  else if (!ai.state.available && ai.state.reason) chip = `<span class="status-chip">${ai.state.reason}</span>`;
+  else if (ai.state.available) chip = `<span class="status-chip ${ai.engineInstalled ? 'ok' : ''}">${t('aiRuntime')}: ${ai.state.ep === 'webgpu' ? 'WebGPU' : 'CPU'} · ${ai.state.threads} ${t('aiThreads')}${ai.state.ortVersion ? ' · ORT ' + ai.state.ortVersion : ''}</span>`;
+  status.innerHTML = `<b>${t('aiEngine')}</b> ${chip}`;
+  eng.appendChild(status);
+  if (ai.manifestError) { const e = document.createElement('p'); e.className = 'hint small'; e.textContent = `${t('aiNoManifest')} (${ai.manifestError})`; eng.appendChild(e); }
+  const items = ai.engineItems;
+  const cv = items.contentvec || { id: 'local-engine-contentvec', label: 'ContentVec', dims: 768, local: true };
+  const row = document.createElement('div'); row.className = 'ai-row';
+  row.innerHTML = `<span class="ai-name">${pickText(cv.label, lang) || 'ContentVec'}</span>`;
+  row.appendChild(aiItemControls(cv, 'engine'));
+  eng.appendChild(row);
+  const rm = items.rmvpe || { id: 'local-engine-rmvpe', label: 'RMVPE', optional: true, local: true };
+  const row2 = document.createElement('div'); row2.className = 'ai-row';
+  row2.innerHTML = `<span class="ai-name">${pickText(rm.label, lang) || 'RMVPE'}</span>`;
+  row2.appendChild(aiItemControls(rm, 'engine'));
+  eng.appendChild(row2);
+  const h = document.createElement('p'); h.className = 'hint small'; h.textContent = t('aiRmvpeHint'); eng.appendChild(h);
+  // storage + manifest url
+  const foot = document.createElement('div'); foot.className = 'ai-row ai-foot';
+  const st = ai.state.storage || {};
+  foot.innerHTML = `<label class="ai-url"><span>${t('aiManifestUrl')}</span><input type="text" id="aiManifestUrl" value="${ai.manifestUrl.replace(/"/g, '&quot;')}" spellcheck="false"></label>`
+    + `<label class="ai-compute"><span>${t('aiCompute')}</span><select id="aiCompute"><option value="auto"${ai.compute !== 'cpu' ? ' selected' : ''}>${t('aiComputeAuto')}</option><option value="cpu"${ai.compute === 'cpu' ? ' selected' : ''}>${t('aiComputeCpu')}</option></select></label>`;
+  foot.querySelector('#aiCompute').onchange = async (e) => { setStatus(t('aiLoadingModels')); await ai.setCompute(e.target.value); renderPresetPicker(); updateLiveAvailability(); setStatus(''); };
+  foot.appendChild(aiButton(t('aiReload'), 'secondary', async () => {
+    const url = $('aiManifestUrl').value.trim() || './models/manifest.json';
+    try { localStorage.setItem('voxmorph.ai.manifest', url); } catch { /* ignore */ }
+    await ai.init(url); renderPresetPicker();
+  }));
+  if (st.usage) { const u = document.createElement('span'); u.className = 'ai-size'; u.textContent = `${t('aiStorage')}: ${formatBytes(st.usage)}`; foot.appendChild(u); }
+  eng.appendChild(foot);
+  panel.appendChild(eng);
+  // voices (manifest + imported files)
+  const voices = ai.voices;
+  const addRow = document.createElement('div'); addRow.className = 'ai-row';
+  const addBtn = aiButton(`+ ${t('aiImportVoice')}`, 'secondary', aiImportVoiceFile);
+  addBtn.id = 'aiAddVoiceBtn';
+  if (state.aiBusy === 'voice' || !ai.state.available) addBtn.disabled = true;
+  addRow.appendChild(addBtn);
+  panel.appendChild(addRow);
+  if (!voices.length) { const n = document.createElement('p'); n.className = 'hint'; n.textContent = t('aiNoVoices'); panel.appendChild(n); }
+  else {
+    const vh = document.createElement('div'); vh.className = 'ai-section'; vh.innerHTML = `<h4>${t('aiVoicesTitle')}</h4>`; panel.appendChild(vh);
+    const list = document.createElement('div'); list.className = 'presets ai-voices';
+    for (const v of voices) {
+      const card = document.createElement('button');
+      card.type = 'button'; card.className = 'preset ai-voice'; card.dataset.preset = 'ai:' + v.id; card.setAttribute('role', 'radio');
+      card.setAttribute('aria-checked', String(state.settings.preset === 'ai:' + v.id));
+      const installed = ai.isInstalled(v.id) && ai.engineInstalled && ai.state.available;
+      card.innerHTML = `<span class="badge">AI</span>${CATEGORY_ICONS[v.category] || CATEGORY_ICONS.other}<span class="pname">${pickText(v.name, lang)}</span><span class="pdesc">${pickText(v.desc, lang)}</span>`;
+      card.appendChild(aiItemControls(v, 'voice'));
+      if (!installed) card.classList.add('locked');
+      card.addEventListener('click', () => { if (installed) selectPreset('ai:' + v.id); });
+      list.appendChild(card);
+    }
+    panel.appendChild(list);
+  }
+  // derived styles: child / elderly voices built on the neural woman and man
+  const sh = document.createElement('div'); sh.className = 'ai-section';
+  sh.innerHTML = `<h4>${t('aiStylesTitle')}</h4><p class="hint small">${t('aiStylesHint')}</p>`;
+  panel.appendChild(sh);
+  const styleIcons = { ai_girl: CATEGORY_ICONS.child, ai_boy: CATEGORY_ICONS.child, ai_old_woman: PRESET_ICONS.woman_elder, ai_old_man: PRESET_ICONS.oldman };
+  const sl = document.createElement('div'); sl.className = 'presets ai-voices ai-styles';
+  for (const sid of AI_STYLE_IDS) {
+    const st = AI_STYLES[sid];
+    const base = baseVoiceFor(st, voices, (x) => ai.isInstalled(x));
+    const ready = aiReady(base);
+    const card = document.createElement('button');
+    card.type = 'button'; card.className = 'preset ai-voice ai-style'; card.dataset.preset = 'ais:' + sid; card.setAttribute('role', 'radio');
+    card.setAttribute('aria-checked', String(state.settings.preset === 'ais:' + sid));
+    card.innerHTML = `<span class="badge">AI</span>${styleIcons[sid] || CATEGORY_ICONS[st.category] || CATEGORY_ICONS.other}<span class="pname">${t('ais_' + sid)}</span><span class="pdesc">${t('ais_' + sid + '_d')}</span>`;
+    const baseLine = document.createElement('span'); baseLine.className = 'ai-base';
+    baseLine.textContent = base ? `${t('aiStyleBase')}: ${pickText(base.name, lang)}` : t('aiStyleNoBase');
+    card.appendChild(baseLine);
+    if (base && !ai.isInstalled(base.id)) card.appendChild(aiItemControls(base, 'voice'));
+    if (!ready) card.classList.add('locked');
+    card.addEventListener('click', () => { if (ready) selectPreset('ais:' + sid); });
+    sl.appendChild(card);
+  }
+  panel.appendChild(sl);
+  grid.appendChild(panel);
+}
+
 function bindControls() {
-  state.activeCategory = (PRESETS[state.settings.preset] || PRESETS.broadcaster).category;
+  state.activeCategory = isAiPreset(state.settings.preset) ? 'ai' : (PRESETS[state.settings.preset] || PRESETS.broadcaster).category;
   renderPresetPicker();
   $('intensity').addEventListener('input', (e) => { state.settings.intensity = Number(e.target.value) / 100; onSettingsChanged(); });
   $('autoToggle').addEventListener('change', (e) => { state.settings.auto = e.target.checked; onSettingsChanged(); });
@@ -709,7 +944,7 @@ async function init() {
   $('micSelect').addEventListener('focus', refreshMics);
   $('saveBtn').addEventListener('click', doSave);
   $('helpBtn').addEventListener('click', () => $('helpDialog').showModal());
-  $('langBtn').addEventListener('click', () => { setLanguage(getLanguage() === 'ar' ? 'en' : 'ar'); populateFormats(); syncFineControls(); updateDetected(); updateTransport(); drawWaveform(); updateTrimUI(); refreshMics(); renderPresetPicker(); syncMusicControls(); });
+  $('langBtn').addEventListener('click', () => { setLanguage(getLanguage() === 'ar' ? 'en' : 'ar'); populateFormats(); syncFineControls(); updateDetected(); updateTransport(); drawWaveform(); updateTrimUI(); refreshMics(); renderPresetPicker(); syncMusicControls(); updateLiveAvailability(); });
 
   // drag & drop
   let dragDepth = 0;
@@ -731,11 +966,14 @@ async function init() {
   updateTransport();
   setupPwa();
   tick();
+  ai.onState = () => scheduleAiPanel();
+  ai.init().then(() => { renderPresetPicker(); updateLiveAvailability(); });
+  updateLiveAvailability();
   // expose for tests
   if ('launchQueue' in window) {
     window.launchQueue.setConsumer(async (launch) => { if (launch.files && launch.files.length) { try { importFile(await launch.files[0].getFile()); } catch { /* ignore */ } } });
   }
-  window.__voxmorph = { state, engine, loadClip, renderNow, ensureConvertedFull, ensureOutput, encodeAudio, selectPreset, importFile, importMusic, mixNow, mixKey, resolveSettings, settingsKey };
+  window.__voxmorph = { state, engine, ai, loadClip, renderNow, ensureConvertedFull, ensureOutput, encodeAudio, selectPreset, importFile, importMusic, mixNow, mixKey, resolveSettings, settingsKey };
 }
 
 init();

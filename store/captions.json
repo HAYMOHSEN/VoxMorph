@@ -1,0 +1,70 @@
+{
+  "ar": [
+    {
+      "file": "01-overview.png",
+      "caption": "الشاشة الرئيسية: سجّل أو استورد، اختر الصوت، اسمع، واحفظ"
+    },
+    {
+      "file": "02-woman-voice.png",
+      "caption": "أنماط الأصوات النسائية"
+    },
+    {
+      "file": "03-ai-voice.png",
+      "caption": "أصوات الذكاء الاصطناعي المحلية (بلا اشتراك)"
+    },
+    {
+      "file": "04-fine-voice.png",
+      "caption": "الضبط الدقيق والملاءمة التلقائية"
+    },
+    {
+      "file": "05-fx-voice.png",
+      "caption": "المؤثرات الصوتية"
+    },
+    {
+      "file": "06-music-music.png",
+      "caption": "الموسيقى الخلفية مع الخفض التلقائي"
+    },
+    {
+      "file": "07-recording-source.png",
+      "caption": "التسجيل والمعاينة الحية"
+    },
+    {
+      "file": "08-overview-export.png",
+      "caption": "الحفظ بصيغ متعددة"
+    }
+  ],
+  "en": [
+    {
+      "file": "01-overview.png",
+      "caption": "Main screen: record or import, pick a voice, listen, save"
+    },
+    {
+      "file": "02-woman-voice.png",
+      "caption": "Female voice styles"
+    },
+    {
+      "file": "03-ai-voice.png",
+      "caption": "Local AI voices (no subscription)"
+    },
+    {
+      "file": "04-fine-voice.png",
+      "caption": "Fine tuning and auto-adapt"
+    },
+    {
+      "file": "05-fx-voice.png",
+      "caption": "Voice effects"
+    },
+    {
+      "file": "06-music-music.png",
+      "caption": "Background music with automatic ducking"
+    },
+    {
+      "file": "07-recording-source.png",
+      "caption": "Recording and live preview"
+    },
+    {
+      "file": "08-overview-export.png",
+      "caption": "Export formats"
+    }
+  ]
+}

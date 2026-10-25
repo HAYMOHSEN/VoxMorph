@@ -1,0 +1,11 @@
+{
+  "repository": "https://github.com/Mangio621/Mangio-RVC-Fork",
+  "files": {
+    "lib/infer_pack/models_onnx.py": "963e67b29f828e9fdd096397952054fe77cf3d10",
+    "lib/infer_pack/attentions.py": "84d5c8730d4facf7ac9951d0339ab71256d7dc09",
+    "lib/infer_pack/modules.py": "b54dc47777363151f1f09deb1284e13e106b9fd1",
+    "lib/infer_pack/commons.py": "4937729bddb0959bfb6c1f6b9da40f971db6db3d",
+    "lib/infer_pack/transforms.py": "7d93c482d296f8bafd9cb5f2a6b1d7c7608cd17c",
+    "LICENSE": "4bb30b3d7243061da6b3f402e6c3c155e9f47690"
+  }
+}

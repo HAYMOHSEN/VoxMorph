@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "engine_contract": "six-input RVC v2 ONNX (phone, phone_lengths, pitch, pitchf, ds, rnd → audio)",
+  "voices": [
+    {
+      "id": "female-p231",
+      "label": "VCTK p231 female",
+      "file": "female-p231.onnx",
+      "sampleRate": 40000,
+      "version": 2,
+      "dims": 768,
+      "f0": true,
+      "speakerId": 0,
+      "latentChannels": 192,
+      "hopLength": 400,
+      "sha256": "d2c026c7ff3458f9f9d7f0023221da6b7f65e84d4e2e351975f9933d7a6fea82",
+      "source_checkpoint": "Fp231rmvpe.pth",
+      "source_sha256": "12f819e129c6e48779439e491b85593b8819d094f751c3515ea13be6bd8b5a59",
+      "model_license": "Apache-2.0",
+      "training_data": "VCTK, English",
+      "training_data_license": "CC-BY-4.0",
+      "sha256_original_export": "41e7312fd7f2008f4452c2c9ce647745c9e4404ea88c2e0de6aec97d9811025f",
+      "size": 110786977,
+      "graph_modification": "NSF SineGen phase accumulator replaced by a bounded frame-wise formulation (tools/fix_rvc_onnx_sine.py); no weight changed. The original export drifts in pitch after ~1 s of silence when run in onnxruntime (float32 cumsum)."
+    },
+    {
+      "id": "male-p226",
+      "label": "VCTK p226 male",
+      "file": "male-p226.onnx",
+      "sampleRate": 40000,
+      "version": 2,
+      "dims": 768,
+      "f0": true,
+      "speakerId": 0,
+      "latentChannels": 192,
+      "hopLength": 400,
+      "sha256": "a43789bddd7f45b325c5871ffb630ee251d5c0d29a133da089d9b0e6cde65997",
+      "source_checkpoint": "Mp226rmvpe.pth",
+      "source_sha256": "0a1d55e17cf08c922596710e58a0862cb54c8ea2ab037a5fc1f85c5f08ab4b18",
+      "model_license": "Apache-2.0",
+      "training_data": "VCTK, English",
+      "training_data_license": "CC-BY-4.0",
+      "sha256_original_export": "25e7907e9f6c1b197bbeae733938a74781a27c0b389a8ab7d8b61df7f69ba4e6",
+      "size": 110786977,
+      "graph_modification": "NSF SineGen phase accumulator replaced by a bounded frame-wise formulation (tools/fix_rvc_onnx_sine.py); no weight changed. The original export drifts in pitch after ~1 s of silence when run in onnxruntime (float32 cumsum)."
+    }
+  ]
+}

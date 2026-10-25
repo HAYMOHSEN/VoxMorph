@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "name": "VoxMorph AI voice pack (example)",
+  "engine": {
+    "contentvec": { "id": "contentvec-768-l12", "url": "https://huggingface.co/<you>/voxmorph-models/resolve/main/contentvec-768-l12.onnx", "size": 0, "sha256": "", "dims": 768, "version": "1" },
+    "rmvpe": { "id": "rmvpe", "url": "https://huggingface.co/lj1995/VoiceConversionWebUI/resolve/main/rmvpe.onnx", "size": 361688443, "sha256": "5370e71ac80af8b4b7c793d27efd51fd8bf962de3a7ede0766dac0befa3660fd", "version": "1", "optional": true }
+  },
+  "voices": [
+    {
+      "id": "ai-woman-warm",
+      "name": { "ar": "امرأة (AI)", "en": "Woman (AI)" },
+      "desc": { "ar": "صوت أنثوي طبيعي مولّد بنموذج عصبي", "en": "Natural female voice from a neural model" },
+      "category": "woman",
+      "url": "https://huggingface.co/<you>/voxmorph-models/resolve/main/woman_warm.onnx",
+      "size": 55123456,
+      "sha256": "",
+      "sampleRate": 40000,
+      "version": 2,
+      "dims": 768,
+      "speakerId": 0,
+      "targetF0": 205,
+      "transposeDefault": 12,
+      "license": "Trained on consented recordings — © you"
+    },
+    {
+      "id": "ai-child",
+      "name": { "ar": "طفل (AI)", "en": "Child (AI)" },
+      "category": "child",
+      "parts": ["./parts/child.onnx.part0", "./parts/child.onnx.part1"],
+      "size": 110246912,
+      "sha256": "",
+      "sampleRate": 48000,
+      "version": 2,
+      "targetF0": 260
+    }
+  ]
+}

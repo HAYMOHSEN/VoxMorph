@@ -193,3 +193,31 @@ dialog p { color: var(--muted); margin: 10px 0 16px; line-height: 1.6; }
 .music-grid { margin-top: 14px; }
 .panel.music.disabled .music-grid { opacity: .45; pointer-events: none; }
 #mixStatus { display: inline-block; margin-top: 10px; }
+
+/* AI voices */
+.preset-tabs button.ai-tab { border-color: rgba(124, 92, 255, .55); }
+.preset-tabs button.ai-tab.ready::after { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--ok); display: inline-block; margin-inline-start: 4px; }
+.ai-panel { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 12px; }
+.ai-head h3 { margin: 0 0 4px; color: var(--text); font-size: 1rem; }
+.ai-engine { border: 1px solid var(--line); border-radius: 12px; background: var(--bg2); padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+.ai-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: .9rem; }
+.ai-row .ai-name { flex: 1; min-width: 160px; }
+.ai-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ai-size { color: var(--muted); font-size: .78rem; }
+.ai-bar { width: 140px; height: 8px; border-radius: 6px; background: #0b0e15; border: 1px solid var(--line); overflow: hidden; }
+.ai-bar > div { height: 100%; background: var(--accent-grad); }
+.ai-pct { font-size: .78rem; color: var(--accent2); font-variant-numeric: tabular-nums; }
+.ai-foot { border-top: 1px dashed var(--line); padding-top: 10px; }
+.ai-url { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 240px; font-size: .8rem; color: var(--muted); }
+.ai-url input { flex: 1; min-width: 160px; font-size: .8rem; }
+.ai-compute { display: flex; align-items: center; gap: 8px; font-size: .8rem; color: var(--muted); }
+.ai-compute select { font-size: .8rem; }
+.presets.ai-voices { grid-template-columns: repeat(2, 1fr); }
+.ai-section { margin: 12px 0 4px; }
+.ai-section h4 { margin: 0; font-size: .9rem; color: var(--text); }
+.ai-section .hint { margin: 2px 0 0; }
+.preset.ai-voice .ai-base { display: block; margin-top: 6px; font-size: .72rem; color: var(--muted); }
+.preset.ai-voice { cursor: pointer; }
+.preset.ai-voice.locked { cursor: default; opacity: .9; }
+.preset.ai-voice .ai-controls { margin-top: 8px; justify-content: center; }
+.preset.ai-voice .badge { background: var(--accent-grad); }

@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "name": "mock pack",
+  "engine": {
+    "contentvec": { "id": "mock-contentvec", "label": { "ar": "محرك وهمي", "en": "Mock engine" }, "url": "./contentvec.onnx", "dims": 768 },
+    "rmvpe": { "id": "mock-rmvpe", "label": { "ar": "RMVPE وهمي", "en": "Mock RMVPE" }, "url": "./rmvpe.onnx", "optional": true }
+  },
+  "voices": [
+    { "id": "mock-woman", "name": { "ar": "امرأة (AI وهمي)", "en": "Woman (mock AI)" }, "desc": { "ar": "نموذج اختبار", "en": "test model" }, "category": "woman", "url": "./voice_woman.onnx", "sampleRate": 40000, "version": 2, "targetF0": 210 },
+    { "id": "mock-child", "name": { "ar": "طفل (AI وهمي)", "en": "Child (mock AI)" }, "category": "child", "parts": ["./voice_child.onnx"], "sampleRate": 48000, "version": 2, "transposeDefault": 9 }
+  ]
+}
